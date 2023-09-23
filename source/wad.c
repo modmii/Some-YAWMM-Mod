@@ -1147,7 +1147,7 @@ s32 Wad_Uninstall(FILE *fp)
 
 		/* Delete all tickets */
 		for (cnt = 0; cnt < viewCnt; cnt++) {
-			memcpy(&view, viewData + i, sizeof(tikview));
+			memcpy(&view, viewData + cnt, sizeof(tikview));
 			ret = ES_DeleteTicket(&view);
 			if (ret < 0)
 				break;

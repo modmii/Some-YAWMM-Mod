@@ -1143,16 +1143,18 @@ s32 Wad_Uninstall(FILE *fp)
 	/* Delete tickets */
 	if (ret >= 0) {
 		u32 cnt;
+		tikview view ATTRIBUTE_ALIGN(0x20) = {};
 
 		/* Delete all tickets */
 		for (cnt = 0; cnt < viewCnt; cnt++) {
-			ret = ES_DeleteTicket(&viewData[cnt]);
+			memcpy(&view, viewData + i, sizeof(tikview));
+			ret = ES_DeleteTicket(&view);
 			if (ret < 0)
 				break;
 		}
 
 		if (ret < 0)
-			printf(" ERROR! (ret = %d\n", ret);
+			printf(" ERROR! (ret = %d)\n", ret);
 		else
 			printf(" OK!\n");
 	}

@@ -62,7 +62,7 @@ s32 Title_FakesignTMD(signed_blob *p_tmd)
 		sha1 hash;
 
 		/* Modify TMD fill field */
-		tmd_data->fill2 = fill;
+		tmd_data->fill3 = fill;
 
 		/* Calculate hash */
 		SHA1((u8 *)tmd_data, TMD_SIZE(tmd_data), hash);

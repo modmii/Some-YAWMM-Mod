@@ -4,38 +4,36 @@
 
 #include "appmetadata.h"
 
-static char* GetStringValue(mxml_node_t* node, const char* element)
+static const char* GetStringValue(mxml_node_t* node, const char* element)
 {
 	mxml_node_t* elementNode = mxmlFindElement(node, node, element, NULL, NULL, MXML_DESCEND_FIRST);
-	
-	if (elementNode)
-	{
-		mxml_node_t* current = elementNode->child;
+	if (!elementNode) return NULL;
 
-		while (current && current->type != MXML_OPAQUE)
-			current = mxmlWalkNext(current, elementNode, MXML_NO_DESCEND);
+	mxml_node_t* current = mxmlGetFirstChild(elementNode);
 
-		if (current->type == MXML_OPAQUE)
-			return current->value.opaque;
-	}
-	
-	return NULL;
+	while (current && mxmlGetType(current) != MXML_OPAQUE)
+		current = mxmlWalkNext(current, elementNode, MXML_NO_DESCEND);
+
+	if (current)
+		return mxmlGetOpaque(current);
+	else
+		return NULL;
+
 }
 
-static char* GetArgumentValue(mxml_node_t* node)
+static const char* GetArgumentValue(mxml_node_t* node)
 {
-	if (node)
-	{
-		mxml_node_t* current = node->child;
+	if (!node) return NULL;
 
-		while (current && current->type != MXML_OPAQUE)
-			current = mxmlWalkNext(current, node, MXML_NO_DESCEND);
+	mxml_node_t* current = mxmlGetFirstChild(node);
 
-		if (current->type == MXML_OPAQUE)
-			return current->value.opaque;
-	}
+	while (current && mxmlGetType(current) != MXML_OPAQUE)
+		current = mxmlWalkNext(current, node, MXML_NO_DESCEND);
 
-	return NULL;
+	if (current)
+		return mxmlGetOpaque(current);
+	else
+		return NULL;
 }
 
 struct MetaData* LoadMetaData(const char* path)
@@ -142,7 +140,7 @@ char* LoadArguments(const char* path, u16* length)
 	
 	for (arg = mxmlFindElement(arguments, arguments, "arg", NULL, NULL, MXML_DESCEND_FIRST); arg != NULL; arg = mxmlFindElement(arg, arguments, "arg", NULL, NULL, MXML_NO_DESCEND))
 	{
-		char* current = GetArgumentValue(arg);
+		const char* current = GetArgumentValue(arg);
 
 		if (current)
 		{
@@ -165,7 +163,7 @@ char* LoadArguments(const char* path, u16* length)
 
 	for (arg = mxmlFindElement(arguments, arguments, "arg", NULL, NULL, MXML_DESCEND_FIRST); arg != NULL; arg = mxmlFindElement(arg, arguments, "arg", NULL, NULL, MXML_NO_DESCEND))
 	{
-		char* current = GetArgumentValue(arg);
+		const char* current = GetArgumentValue(arg);
 
 		if (current)
 		{

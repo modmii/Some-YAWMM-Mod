@@ -2,12 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include <malloc.h>
 #include <ogcsys.h>
 
 #include "sha1.h"
 #include "utils.h"
-
+#include "malloc.h"
 
 s32 Title_ZeroSignature(signed_blob *p_sig)
 {
@@ -79,7 +78,7 @@ s32 Title_GetList(u64 **outbuf, u32 *outlen)
 {
 	u64 *titles = NULL;
 
-	u32 len, nb_titles;
+	u32 nb_titles;
 	s32 ret;
 
 	/* Get number of titles */
@@ -87,11 +86,9 @@ s32 Title_GetList(u64 **outbuf, u32 *outlen)
 	if (ret < 0)
 		return ret;
 
-	/* Calculate buffer lenght */
-	len = round_up(sizeof(u64) * nb_titles, 32);
 
 	/* Allocate memory */
-	titles = memalign(32, len);
+	titles = memalign32(nb_titles * sizeof(u64));
 	if (!titles)
 		return -1;
 
@@ -126,7 +123,7 @@ s32 Title_GetTicketViews(u64 tid, tikview **outbuf, u32 *outlen)
 		return ret;
 
 	/* Allocate memory */
-	views = (tikview *)memalign(32, sizeof(tikview) * nb_views);
+	views = memalign32(sizeof(tikview) * nb_views);
 	if (!views)
 		return -1;
 
@@ -161,7 +158,7 @@ s32 Title_GetTMD(u64 tid, signed_blob **outbuf, u32 *outlen)
 		return ret;
 
 	/* Allocate memory */
-	p_tmd = memalign(32, round_up(len, 32));
+	p_tmd = memalign32(len);
 	if (!p_tmd)
 		return -1;
 
@@ -290,7 +287,7 @@ s32 Title_GetIOSVersions(u8 **outbuf, u32 *outlen)
 	}
 
 	/* Allocate memory */
-	buffer = (u8 *)memalign(32, cnt);
+	buffer = memalign32(cnt);
 	if (!buffer) {
 		ret = -1;
 		goto out;

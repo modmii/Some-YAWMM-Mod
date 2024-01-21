@@ -1,10 +1,10 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <ogcsys.h>
-#include <malloc.h>
 #include <string.h>
 
 #include "nand.h"
+#include "malloc.h"
 #include "fileops.h"
 
 /* Buffer */
@@ -118,7 +118,7 @@ u8* NANDReadFromFile(const char* path, u32 offset, u32 length, u32* size)
 		if (!length)
 			length = IOS_Seek(fd, 0, SEEK_END);
 
-		u8* data = (u8*)memalign(0x40, length);
+		u8* data = memalign64(length);
 		if (!data)
 		{
 			*size = 0;
@@ -155,9 +155,10 @@ u8* NANDLoadFile(const char* path, u32* size)
 
 s32 NANDWriteFileSafe(const char* path, u8* data, u32 size)
 {
+	char tmpPath[ISFS_MAXPATH] ATTRIBUTE_ALIGN(64);
+
 	NANDInitialize();
-	
-	char* tmpPath = (char*)memalign(0x40, ISFS_MAXPATH);
+
 	u32 i;
 
 	for (i = strlen(path); i > 0; --i)
@@ -175,43 +176,29 @@ s32 NANDWriteFileSafe(const char* path, u8* data, u32 size)
 		ret = ISFS_CreateFile(tmpPath, 0, 3, 3, 3);
 
 		if (ret < 0)
-		{
-			free(tmpPath);
 			return ret;
-		}
 	}
-	else
+	else if (ret < 0)
 	{
-		if (ret < 0)
-		{
-			free(tmpPath);
-			return ret;
-		}
+		return ret;
 	}
 
 	s32 fd = IOS_Open(tmpPath, 2);
 	if (fd < 0)
-	{
-		free(tmpPath);
 		return fd;
-	}
 
 	ret = IOS_Write(fd, data, size);
 
 
 	IOS_Close(fd);
 	if (ret != size)
-	{
-		free(tmpPath);
 		return ret - 3;
-	}
 
 	if (strcmp(tmpPath, path))
 		ret = ISFS_Rename(tmpPath, path);
 	else
 		ret = 0;
-	
-	free(tmpPath);
+
 	return ret;
 }
 

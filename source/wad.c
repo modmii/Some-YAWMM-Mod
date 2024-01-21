@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <string.h>
-#include <malloc.h>
 #include <ogcsys.h>
 #include <ogc/pad.h>
 #include <unistd.h>
@@ -16,6 +15,7 @@
 #include "sha1.h"
 #include "menu.h"
 #include "iospatch.h"
+#include "malloc.h"
 
 // Turn upper and lower into a full title ID
 #define TITLE_ID(x,y)		(((u64)(x) << 32) | (y))
@@ -97,7 +97,7 @@ u64 get_title_ios(u64 title) {
 	
 	// Check to see if title exists
 	if (ES_GetDataDir(title, filepath) >= 0 ) {
-		u32 tmd_size;
+		u32 tmd_size = 0;
 		static u8 tmd_buf[MAX_SIGNED_TMD_SIZE] ATTRIBUTE_ALIGN(32);
 	
 		ret = ES_GetStoredTMDSize(title, &tmd_size);
@@ -265,62 +265,94 @@ const char* GetSysMenuVersionString(u16 version)
 	return VersionLookupTable[version % 32][version / 32];
 };
 
-static char* GetTitleExec(u64 tId, bool tweaked)
+static u32 GetSysMenuBootContent(void)
 {
-	u32 size;
-	const u8 buffer[MAX_SIGNED_TMD_SIZE] ATTRIBUTE_ALIGN(32);
-
-	s32 ret = ES_GetStoredTMDSize(0x100000002LL, &size);
-	signed_blob* tmdRaw = (signed_blob*)buffer;
-
-	ret = ES_GetStoredTMD(0x100000002LL, tmdRaw, size);
-	if (ret < 0)
+	static u32 cid = 0;
+	
+	if (!cid)
 	{
-		printf("Error! ES_GetStoredTMDSize: Failed! (Error: %d)\n", ret);
-		return NULL;
+		s32 ret;
+		u32 size = 0;
+		signed_blob *s_tmd = NULL;
+
+		ret = ES_GetStoredTMDSize(0x100000002LL, &size);
+		if (!size)
+		{
+			printf("Error! ES_GetStoredTMDSize failed (ret=%i)\n", ret);
+			return 0;
+		}
+
+		s_tmd = memalign32(size);
+		if (!s_tmd)
+		{
+			printf("Error! Memory allocation failed!\n");
+			return 0;
+		}
+
+		ret = ES_GetTMDView(0x100000002LL, (u8*)s_tmd, size);
+		if (ret < 0)
+		{
+			printf("Error! ES_GetTMDView failed (ret=%i)\n", ret);
+			free(s_tmd);
+			return 0;
+		}
+
+		tmd *p_tmd = SIGNATURE_PAYLOAD(s_tmd);
+
+		for (int i = 0; i < p_tmd->num_contents; i++)
+		{
+			tmd_content* content = p_tmd->contents + i;
+			if (content->index == p_tmd->boot_index)
+			{
+				cid = content->cid;
+				break;
+			}
+		}
+
+		free(s_tmd);
+		if (!cid)
+		{
+			printf("Error! Cannot find system menu boot content!\n");
+			return 0;
+		}
 	}
 
-	tmd* smTMD = SIGNATURE_PAYLOAD(tmdRaw);
+	return cid;
+}
 
-	char* path = (char*)memalign(0x40, ISFS_MAXPATH);
-	if (!path)
-		return NULL;
+bool GetSysMenuExecPath(char path[ISFS_MAXPATH], bool mainDOL)
+{
+	u32 cid = GetSysMenuBootContent();
+	if (!cid) return false;
 
-	if(tweaked)
-		sprintf(path, "/title/%08x/%08x/content/1%.7x.app", TITLE_UPPER(tId), TITLE_LOWER(tId), smTMD->contents[smTMD->boot_index].cid);
-	else 
-		sprintf(path, "/title/%08x/%08x/content/%.8x.app", TITLE_UPPER(tId), TITLE_LOWER(tId), smTMD->contents[smTMD->boot_index].cid);
+	if (mainDOL) cid |= 0x10000000;
+	sprintf(path, "/title/00000001/00000002/content/%08x.app", cid);
 
-	return path;
+	return true;
 }
 
 bool IsPriiloaderInstalled()
 {
-	char* path = GetTitleExec(0x100000002LL, true);
-	if (!path)
+	char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(0x20);
+	
+	if (!GetSysMenuExecPath(path, true))
 		return false;
-	
-	
+
 	u32 size = 0;
 	NANDGetFileSize(path, &size);
-	free(path);
 
-	if (size > 0)
-		return true;
-	else
-		return false;
+	return (size > 0);
 }
 
 static bool BackUpPriiloader()
 {
-	char* path = GetTitleExec(0x100000002LL, false);
-	if (!path)
+	char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(0x20);
+	
+	if (!GetSysMenuExecPath(path, false))
 		return false;
 
 	u32 size = 0;
 	s32 ret = NANDBackUpFile(path, "/tmp/priiload.app", &size);
-	free(path);
-	
 	if (ret < 0)
 	{
 		printf("Error! NANDBackUpFile: Failed! (Error: %d)\n", ret);
@@ -334,55 +366,45 @@ static bool BackUpPriiloader()
 
 static bool MoveMenu(bool restore)
 {
-	char* srcPath = GetTitleExec(0x100000002LL, restore);
-	if (!srcPath)
+	ATTRIBUTE_ALIGN(0x20)
+	char srcPath[ISFS_MAXPATH], dstPath[ISFS_MAXPATH];
+
+	if (!GetSysMenuBootContent())
 		return false;
 
-	char* dstPath = GetTitleExec(0x100000002LL, !restore);
-	if (!dstPath)
-	{
-		free(srcPath);
-		return false;
-	}
+	GetSysMenuExecPath(srcPath, restore);
+	GetSysMenuExecPath(dstPath, !restore);
 
 	u32 size = 0;
 	s32 ret = NANDBackUpFile(srcPath, dstPath, &size);
 	if (ret < 0)
 	{
-		free(srcPath);
-		free(dstPath);
 		printf("Error! NANDBackUpFile: Failed! (Error: %d)\n", ret);
 		return false;
 	}
 
 	u32 checkSize = 0;
 	ret = NANDGetFileSize(dstPath, &checkSize);
-
-	free(srcPath);
-	free(dstPath);
 
 	return (checkSize == size);
 }
 
 static bool RestorePriiloader()
 {
-	char* dstPath = GetTitleExec(0x100000002LL, false);
-	if (!dstPath)
-		return false;
+	char dstPath[ISFS_MAXPATH] ATTRIBUTE_ALIGN(0x20);
+
+	if (!GetSysMenuExecPath(dstPath, false));
 
 	u32 size = 0;
 	s32 ret = NANDBackUpFile("/tmp/priiload.app", dstPath, &size);
 	if (ret < 0)
 	{
-		free(dstPath);
 		printf("Error! NANDBackUpFile: Failed! (Error: %d)\n", ret);
 		return false;
 	}
 
 	u32 checkSize = 0;
 	ret = NANDGetFileSize(dstPath, &checkSize);
-
-	free(dstPath);
 
 	return (checkSize == size && checkSize == gPriiloaderSize);
 }
@@ -453,56 +475,30 @@ static void CleanupPriiloaderLeftOvers(bool retain)
 
 static bool CompareHashes(bool priiloader)
 {
-	char* dstPath = NULL;
-	char* srcPath = GetTitleExec(0x100000002LL, false);
+	ATTRIBUTE_ALIGN(0x20)
+	char srcPath[ISFS_MAXPATH], dstPath[ISFS_MAXPATH] = "/tmp/priiload.app";
 
-	if (!srcPath)
+	if (!GetSysMenuExecPath(srcPath, false))
 		return false;
-	
-	if (priiloader)
-	{
-		dstPath = (char*)memalign(0x40, ISFS_MAXPATH);
-		if (!dstPath)
-		{
-			free(srcPath);
-			return false;
-		}
-		
-		strcpy(dstPath, "/tmp/priiload.app");
-	}
-	else
-	{
-		dstPath = GetTitleExec(0x100000002LL, true);
-		if (!dstPath)
-		{
-			free(srcPath);
-			return false;
-		}
-	}
+
+	if (!priiloader)
+		GetSysMenuExecPath(dstPath, true);
 
 	u32 sizeA = 0;
 	u32 sizeB = 0;
 	u8* dataA = NANDLoadFile(srcPath, &sizeA);
 	if (!dataA)
-	{
-		free(srcPath);
-		free(dstPath);
 		return false;
-	}
 
 	u8* dataB = NANDLoadFile(dstPath, &sizeB);
-	if (!dataA)
+	if (!dataB)
 	{
-		free(srcPath);
-		free(dstPath);
 		free(dataA);
 		return false;
 	}
 	
-	bool ret = !CompareHash(dataA, sizeA, dataB, sizeB);
+	bool ret = (sizeA == sizeB) && !CompareHash(dataA, sizeA, dataB, sizeB);
 
-	free(srcPath);
-	free(dstPath);
 	free(dataA);
 	free(dataB);
 
@@ -971,9 +967,9 @@ skipChecks:
 						{
 							if (restored)
 							{
-								char* path = GetTitleExec(0x100000002LL, true);
+								char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(0x20);
+								GetSysMenuExecPath(path, true);
 								NANDDeleteFile(path);
-								free(path);
 							}
 						}
 					}

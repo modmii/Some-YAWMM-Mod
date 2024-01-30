@@ -175,7 +175,7 @@ static bool GetRegionFromTXT(char* region)
 	if(current)
 	{
 		char* start = strchr(current, '=');
-		char* end = strchr(current, '\r');
+		char* end = strchr(current, '\n');
 
 		if (start && end)
 		{

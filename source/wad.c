@@ -289,10 +289,10 @@ static u32 GetSysMenuBootContent(void)
 			return 0;
 		}
 
-		ret = ES_GetTMDView(0x100000002LL, (u8*)s_tmd, size);
+		ret = ES_GetStoredTMD(0x100000002LL, (u8*)s_tmd, size);
 		if (ret < 0)
 		{
-			printf("Error! ES_GetTMDView failed (ret=%i)\n", ret);
+			printf("Error! ES_GetStoredTMD failed (ret=%i)\n", ret);
 			free(s_tmd);
 			return 0;
 		}
@@ -301,7 +301,7 @@ static u32 GetSysMenuBootContent(void)
 
 		for (int i = 0; i < p_tmd->num_contents; i++)
 		{
-			tmd_content* content = p_tmd->contents + i;
+			tmd_content* content = &p_tmd->contents[i];
 			if (content->index == p_tmd->boot_index)
 			{
 				cid = content->cid;

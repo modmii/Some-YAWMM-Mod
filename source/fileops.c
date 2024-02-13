@@ -1,9 +1,8 @@
 #include <stdio.h>
-#include <malloc.h>
 #include <string.h>
 
 #include "fileops.h"
-
+#include "malloc.h"
 
 bool FSOPFileExists(const char* file)
 {
@@ -85,7 +84,7 @@ s32 FSOPReadOpenFile(FILE* fp, void* buffer, u32 offset, u32 length)
 
 s32 FSOPReadOpenFileA(FILE* fp, void** buffer, u32 offset, u32 length)
 {
-	*buffer = memalign(32, length);
+	*buffer = memalign32(length);
 	if (!*buffer)
 		return -1;
 

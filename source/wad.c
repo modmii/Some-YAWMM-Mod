@@ -267,55 +267,47 @@ const char* GetSysMenuVersionString(u16 version)
 
 static u32 GetSysMenuBootContent(void)
 {
-	static u32 cid = 0;
-	
-	if (!cid)
+	s32 ret;
+	u32 cid = 0;
+	u32 size = 0;
+	signed_blob *s_tmd = NULL;
+
+	ret = ES_GetStoredTMDSize(0x100000002LL, &size);
+	if (!size)
 	{
-		s32 ret;
-		u32 size = 0;
-		signed_blob *s_tmd = NULL;
+		printf("Error! ES_GetStoredTMDSize failed (ret=%i)\n", ret);
+		return 0;
+	}
 
-		ret = ES_GetStoredTMDSize(0x100000002LL, &size);
-		if (!size)
-		{
-			printf("Error! ES_GetStoredTMDSize failed (ret=%i)\n", ret);
-			return 0;
-		}
+	s_tmd = memalign32(size);
+	if (!s_tmd)
+	{
+		printf("Error! Memory allocation failed!\n");
+		return 0;
+	}
 
-		s_tmd = memalign32(size);
-		if (!s_tmd)
-		{
-			printf("Error! Memory allocation failed!\n");
-			return 0;
-		}
-
-		ret = ES_GetStoredTMD(0x100000002LL, (u8*)s_tmd, size);
-		if (ret < 0)
-		{
-			printf("Error! ES_GetStoredTMD failed (ret=%i)\n", ret);
-			free(s_tmd);
-			return 0;
-		}
-
-		tmd *p_tmd = SIGNATURE_PAYLOAD(s_tmd);
-
-		for (int i = 0; i < p_tmd->num_contents; i++)
-		{
-			tmd_content* content = &p_tmd->contents[i];
-			if (content->index == p_tmd->boot_index)
-			{
-				cid = content->cid;
-				break;
-			}
-		}
-
+	ret = ES_GetStoredTMD(0x100000002LL, (u8*)s_tmd, size);
+	if (ret < 0)
+	{
+		printf("Error! ES_GetStoredTMD failed (ret=%i)\n", ret);
 		free(s_tmd);
-		if (!cid)
+		return 0;
+	}
+
+	tmd *p_tmd = SIGNATURE_PAYLOAD(s_tmd);
+
+	for (int i = 0; i < p_tmd->num_contents; i++)
+	{
+		tmd_content* content = &p_tmd->contents[i];
+		if (content->index == p_tmd->boot_index)
 		{
-			printf("Error! Cannot find system menu boot content!\n");
-			return 0;
+			cid = content->cid;
+			break;
 		}
 	}
+
+	free(s_tmd);
+	if (!cid) printf("Error! Cannot find system menu boot content!\n");
 
 	return cid;
 }

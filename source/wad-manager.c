@@ -14,6 +14,7 @@
 #include "sys.h"
 #include "video.h"
 #include "wpad.h"
+#include "wkb.h"
 #include "fat.h"
 #include "nand.h"
 #include "globals.h"
@@ -179,6 +180,7 @@ int main(int argc, char **argv)
 	Wpad_Init();
 	PAD_Init();
 	WiiDRC_Init();
+	WKB_Initialize();
 	WIILIGHT_Init();
 
 	/* Print disclaimer */

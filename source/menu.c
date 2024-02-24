@@ -3,6 +3,7 @@
 #include <string.h>
 #include <malloc.h>
 #include <ogcsys.h>
+#include <ogc/pad.h>
 #include <wiilight.h>
 #include <wiidrc/wiidrc.h>
 #include <unistd.h>
@@ -16,7 +17,7 @@
 #include "video.h"
 #include "wad.h"
 #include "wpad.h"
-#include <ogc/pad.h>
+#include "wkb.h"
 #include "globals.h"
 #include "iospatch.h"
 #include "appboot.h"
@@ -646,42 +647,26 @@ int Menu_BatchProcessWads(fatFile *files, int fileCount, char *inFilePath, int i
 
 				if (thisFile->installstate < 0)
 				{
-					char str[41];
-					strncpy(str, thisFile->filename, 40); //Only 40 chars to fit the screen
-					str[40]=0;
+					printf("    %.40s ", thisFile->filename);
 					i++;
 					
 					
 					switch (thisFile->installstate)
 					{
-						case -106:
-						{
-							printf("    %s Not installed?\n", str);
-						} break;
-						case -996:
-						{
-							printf("    %s Read error\n", str);
-						} break;
-						case -998:
-						{
-							printf("    %s Skipped\n", str);
-						} break;
-						case -999:
-						{
-							printf("    %s BRICK BLOCKED\n", str);
-						} break;
-						case -1036:
-						{
-							printf("    %s Needed IOS missing\n", str);
-						} break;
-						case -4100:
-						{
-							printf("    %s No trucha bug?\n", str);
-						} break;
-						default:
-						{
-							printf("    %s error %d\n", str, thisFile->installstate);
-						} break;
+						case -106:	puts("Not installed?"); break;
+						case -996:	puts("Read error"); break;
+						case -998:	puts("Skipped"); break;
+						case -999:	puts("BRICK BLOCKED"); break;
+						case -1036:	puts("Needed IOS missing"); break;
+						case -2011:	puts("No trucha bug?"); break;
+						/*
+						 * from libogc.
+						 * This rarely happens unless the WAD had an invalid ticket/tmd size
+						 * (certs were not stripped after downloading from NUS maybe?)
+						 */
+						case ES_EINVAL: puts("Invalid WAD?"); break;
+
+						default: printf("error %d\n", thisFile->installstate); break;
 					}
 					
 					if(i == 17)
@@ -1496,9 +1481,10 @@ u32 WaitButtons(void)
 	u32 buttons = 0;
     u32 buttonsGC = 0;
 	u32 buttonsDRC = 0;
+	u16 buttonsWKB = 0;
 
 	/* Wait for button pressing */
-	while (!buttons && !buttonsGC && !buttonsDRC)
+	while (!(buttons | buttonsGC | buttonsDRC | buttonsWKB))
     {
         // Wii buttons
 		buttons = Wpad_GetButtons();
@@ -1508,6 +1494,9 @@ u32 WaitButtons(void)
 
         // DRC buttons
         buttonsDRC = WiiDRC_GetButtons();
+
+		// USB Keyboard buttons
+		buttonsWKB = WKB_GetButtons();
 
 		VIDEO_WaitVSync();
 	}
@@ -1580,6 +1569,9 @@ u32 WaitButtons(void)
         else if(buttonsDRC & WIIDRC_BUTTON_ZR)
             buttons |= WPAD_BUTTON_1;
     }
+
+    if (buttonsWKB)
+		buttons |= buttonsWKB;
 
 	return buttons;
 } // WaitButtons

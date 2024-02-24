@@ -21,7 +21,7 @@ include $(DEVKITPPC)/wii_rules
 TARGET		:=	boot
 BUILD		:=	build
 SOURCES		:=	source include source/libtinysmb source/libpng source/libpng/pngu
-DATA		:=	data  
+DATA		:=	data
 INCLUDES	:=
 
 #---------------------------------------------------------------------------------
@@ -36,7 +36,7 @@ LDFLAGS	=	$(MACHDEP) -Wl,-Map,$(notdir $@).map
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:= -lmxml -ltinysmb -lpng -lfat -lwiidrc -lwiiuse -lbte -logc -lm -lz -lwiilight
+LIBS	:= -lmxml -ltinysmb -lpng -lfat -lwiikeyboard -lwiidrc -lwiiuse -lbte -logc -lm -lz -lwiilight
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing

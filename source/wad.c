@@ -2,6 +2,8 @@
 #include <string.h>
 #include <ogcsys.h>
 #include <ogc/pad.h>
+#include <ogc/aes.h>
+#include <ogc/es.h>
 #include <unistd.h>
 
 #include "sys.h"
@@ -286,7 +288,7 @@ static u32 GetSysMenuBootContent(void)
 		return 0;
 	}
 
-	ret = ES_GetStoredTMD(0x100000002LL, (u8*)s_tmd, size);
+	ret = ES_GetStoredTMD(0x100000002LL, s_tmd, size);
 	if (ret < 0)
 	{
 		printf("Error! ES_GetStoredTMD failed (ret=%i)\n", ret);
@@ -550,14 +552,39 @@ out:
 	return ret;
 }
 
+static const aeskey WiiCommonKey = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48, 0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7 };
+
 void __Wad_FixTicket(signed_blob *p_tik)
 {
 	u8 *data = (u8 *)p_tik;
 	u8 *ckey = data + 0x1F1;
 
+	/*
+	 * Alright. I'd hate to pull this off on signed tickets using the vWii common key.
+	 * But this already does it, just without re-crypting the title key. So let's do it.
+	 */
+	bool fixKey = *ckey == 2;
 	if (*ckey > 1) {
 		/* Set common key */
 		*ckey = 0;
+
+		/* Fix tickets using vWii Common Key */
+		if (fixKey)
+		{
+			__attribute__((aligned(0x10)))
+			static unsigned char keybuf[0x10], iv[0x10];
+
+			u8* titlekey = data + sizeof(sig_rsa2048) + offsetof(tik, cipher_title_key);
+			u64* titleid = data + sizeof(sig_rsa2048) + offsetof(tik, titleid);
+
+			memcpy(keybuf, titlekey, sizeof(keybuf));
+			// Static so it's already zero-initialized. Ideally the bottom 8 bytes don't get touched somehow.
+			//
+			memcpy(iv, titleid, sizeof(*titleid));
+			AES_Init();
+			AES_Decrypt(WiiCommonKey, 0x10, iv, 0x10, keybuf, keybuf, 0x10);
+			memcpy(titlekey, keybuf, sizeof(keybuf));
+		}
 
 		/* Fakesign ticket */
 		Title_FakesignTik(p_tik);

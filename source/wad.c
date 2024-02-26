@@ -2,13 +2,13 @@
 #include <string.h>
 #include <ogcsys.h>
 #include <ogc/pad.h>
-#include <ogc/aes.h>
 #include <ogc/es.h>
 #include <unistd.h>
 
 #include "sys.h"
 #include "title.h"
 #include "utils.h"
+#include "aes.h"
 #include "video.h"
 #include "wad.h"
 #include "wpad.h"

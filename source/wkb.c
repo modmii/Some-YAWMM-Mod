@@ -3,6 +3,8 @@
  * https://github.com/DacoTaco/priiloader/blob/master/tools/DacosLove/source/Input.cpp
  */
 
+#include <stdlib.h>
+#include <unistd.h>
 #include <ogc/lwp.h>
 #include <wiiuse/wpad.h>
 
@@ -107,7 +109,7 @@ static void* WKBThread(__attribute__((unused)) void* arg)
         usleep(WKB_THREAD_UDELAY);
     }
 
-    for (int led = 3; led; led--) { USBKeyboard_SetLed(led, false); usleep(WKB_ANIMATION_UDELAY); }
+//  for (int led = 3; led; led--) { USBKeyboard_SetLed(led, false); usleep(WKB_ANIMATION_UDELAY); }
     return NULL;
 }
 
@@ -118,6 +120,7 @@ void WKB_Initialize(void)
 
     WKBThreadActive = true;
     LWP_CreateThread(&WKBThreadHandle, WKBThread, NULL, NULL, WKB_THREAD_STACK, WKB_THREAD_PRIORITY);
+    atexit(WKB_Deinitialize);
 }
 
 void WKB_Deinitialize(void)

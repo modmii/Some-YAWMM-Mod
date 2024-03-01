@@ -158,6 +158,11 @@ void Sys_Shutdown(void)
 
 void Sys_LoadMenu(void)
 {
+	/* SYSCALL(exit) does all of this already */
+	exit(0);
+
+	/* Also the code gcc generated for this looks really painful */
+#if 0
 	int HBC = 0;
 	char *sig = (char *)0x80001804;
 	if (sig[0] == 'S' &&
@@ -179,6 +184,7 @@ void Sys_LoadMenu(void)
 	}
 	/* Return to the Wii system menu */
 	SYS_ResetSystem(SYS_RETURNTOMENU, 0, 0);
+#endif
 }
 
 s32 Sys_GetCerts(signed_blob **certs, u32 *len)

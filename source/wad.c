@@ -1165,6 +1165,13 @@ s32 Wad_Uninstall(FILE *fp)
 		goto out;
 	}
 
+	if (!__Wad_VerifyHeader(header))
+	{
+		puts("Invalid WAD file?");
+		ret = ES_EINVAL;
+		goto out;
+	}
+
 	/* Get title ID */
 	ret =  __Wad_GetTitleID(fp, header, &tid);
 	if (ret < 0) {
@@ -1215,7 +1222,8 @@ s32 Wad_Uninstall(FILE *fp)
 	GetSysMenuRegion(NULL, &region);
 	
 	if((tid  == TITLE_ID(0x10008, 0x48414B00 | 'E') || tid  == TITLE_ID(0x10008, 0x48414B00 | 'P') || tid  == TITLE_ID(0x10008, 0x48414B00 | 'J') || tid  == TITLE_ID(0x10008, 0x48414B00 | 'K') 
-		|| (tid  == TITLE_ID(0x10008, 0x48414C00 | 'E') || tid  == TITLE_ID(0x10008, 0x48414C00 | 'P') || tid  == TITLE_ID(0x10008, 0x48414C00 | 'J') || tid  == TITLE_ID(0x10008, 0x48414C00 | 'K'))) && region == 0)
+	|| (tid  == TITLE_ID(0x10008, 0x48414C00 | 'E') || tid  == TITLE_ID(0x10008, 0x48414C00 | 'P') || tid  == TITLE_ID(0x10008, 0x48414C00 | 'J') || tid  == TITLE_ID(0x10008, 0x48414C00 | 'K')))
+	&& region == 0)
 	{
 		printf("\n    Unknown SM region\n    Please check the site for updates\n");
 		ret = -999;
@@ -1257,9 +1265,9 @@ s32 Wad_Uninstall(FILE *fp)
 		printf(" ERROR! (ret = %d)\n", ret);
 
 	/* Delete tickets */
-	if (ret >= 0) {
+	else {
 		u32 cnt;
-		tikview view ATTRIBUTE_ALIGN(0x20) = {};
+		static tikview view ATTRIBUTE_ALIGN(0x20);
 
 		/* Delete all tickets */
 		for (cnt = 0; cnt < viewCnt; cnt++) {
@@ -1282,6 +1290,7 @@ s32 Wad_Uninstall(FILE *fp)
 		else
 			printf(" OK!\n");
 	}
+	free(viewData);
 
 	printf("\t\t>> Deleting title contents...");
 	fflush(stdout);

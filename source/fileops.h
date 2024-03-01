@@ -1,6 +1,7 @@
 #ifndef __FILEOPS_H__
 #define __FILEOPS_H__
 
+#include <sys/stat.h>
 #include <dirent.h>
 #include <ogcsys.h>
 

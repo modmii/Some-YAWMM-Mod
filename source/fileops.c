@@ -4,52 +4,29 @@
 #include "fileops.h"
 #include "malloc.h"
 
+static struct stat st;
+
 bool FSOPFileExists(const char* file)
 {
-	FILE* f;
-	f = fopen(file, "rb");
-	if (f)
-	{
-		fclose(f);
-		return true;
-	}
-	return false;
+	return !stat(file, &st) && !S_ISDIR(st.st_mode);
 }
 
 bool FSOPFolderExists(const char* path)
 {
-	DIR* dir;
-	dir = opendir(path);
-	if (dir)
-	{
-		closedir(dir);
-		return true;
-	}
-	return false;
+	return !stat(path, &st) && S_ISDIR(st.st_mode);
 }
 
 size_t FSOPGetFileSizeBytes(const char* path)
 {
-	FILE* f;
-	size_t size = 0;
+	if (stat(path, &st) < 0) return 0;
 
-	f = fopen(path, "rb");
-	if (!f) 
-		return 0;
-
-	fseek(f, 0, SEEK_END);
-	size = ftell(f);
-	fclose(f);
-
-	return size;
+	return st.st_size;
 }
 
 void FSOPDeleteFile(const char* file)
 {
-	if (!FSOPFileExists(file))
-		return;
-
-	remove(file);
+	if (FSOPFileExists(file))
+		remove(file);
 }
 
 void FSOPMakeFolder(const char* path)
@@ -89,8 +66,11 @@ s32 FSOPReadOpenFileA(FILE* fp, void** buffer, u32 offset, u32 length)
 		return -1;
 
 	s32 ret = FSOPReadOpenFile(fp, *buffer, offset, length);
-	if (ret < 0) 
+	if (ret <= 0)
+	{
 		free(*buffer);
+		*buffer = NULL;
+	}
 
 	return ret;
 }

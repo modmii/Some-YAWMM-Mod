@@ -2,7 +2,7 @@
 #define _TITLE_H_
 
 /* Constants */
-#define BLOCK_SIZE	1024
+#define BLOCK_SIZE	0x4000
 
 /* Prototypes */
 s32 Title_ZeroSignature(signed_blob *);

@@ -2,11 +2,13 @@
 #include <string.h>
 #include <ogcsys.h>
 #include <ogc/pad.h>
+#include <ogc/es.h>
 #include <unistd.h>
 
 #include "sys.h"
 #include "title.h"
 #include "utils.h"
+#include "aes.h"
 #include "video.h"
 #include "wad.h"
 #include "wpad.h"
@@ -93,58 +95,58 @@ static inline void DecEncTxtBuffer(char* buffer)
 
 u64 get_title_ios(u64 title) {
 	s32 ret, fd;
-	static char filepath[256] ATTRIBUTE_ALIGN(32);	
-	
+	static char filepath[256] ATTRIBUTE_ALIGN(32);
+
 	// Check to see if title exists
 	if (ES_GetDataDir(title, filepath) >= 0 ) {
 		u32 tmd_size = 0;
 		static u8 tmd_buf[MAX_SIGNED_TMD_SIZE] ATTRIBUTE_ALIGN(32);
-	
+
 		ret = ES_GetStoredTMDSize(title, &tmd_size);
 		if (ret < 0){
 			// If we fail to use the ES function, try reading manually
 			// This is a workaround added since some IOS (like 21) don't like our
 			// call to ES_GetStoredTMDSize
-			
+
 			//printf("Error! ES_GetStoredTMDSize: %d\n", ret);
-					
+
 			sprintf(filepath, "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(title), TITLE_LOWER(title));
-			
+
 			ret = ISFS_Open(filepath, ISFS_OPEN_READ);
 			if (ret <= 0)
 			{
 				//printf("Error! ISFS_Open (ret = %d)\n", ret);
 				return 0;
 			}
-			
+
 			fd = ret;
-			
+
 			ret = ISFS_Seek(fd, 0x184, 0);
 			if (ret < 0)
 			{
 				//printf("Error! ISFS_Seek (ret = %d)\n", ret);
 				return 0;
 			}
-			
+
 			ret = ISFS_Read(fd,tmd_buf,8);
 			if (ret < 0)
 			{
 				//printf("Error! ISFS_Read (ret = %d)\n", ret);
 				return 0;
 			}
-			
+
 			ret = ISFS_Close(fd);
 			if (ret < 0)
 			{
 				//printf("Error! ISFS_Close (ret = %d)\n", ret);
 				return 0;
 			}
-			
+
 			return be64(tmd_buf);
-			
+
 		} else {
 			// Normal versions of IOS won't have a problem, so we do things the "right" way.
-			
+
 			// Some of this code adapted from bushing's title_lister.c
 			signed_blob *s_tmd = (signed_blob *)tmd_buf;
 			ret = ES_GetStoredTMD(title, s_tmd, tmd_size);
@@ -155,9 +157,9 @@ u64 get_title_ios(u64 title) {
 			tmd *t = SIGNATURE_PAYLOAD(s_tmd);
 			return t->sys_version;
 		}
-		
-		
-	} 
+
+
+	}
 	return 0;
 }
 
@@ -171,7 +173,7 @@ static bool GetRegionFromTXT(char* region)
 		return false;
 
 	DecEncTxtBuffer(buffer);
-	
+
 	char* current = strstr(buffer, "AREA");
 
 	if(current)
@@ -182,7 +184,7 @@ static bool GetRegionFromTXT(char* region)
 		if (start && end)
 		{
 			start++;
-			
+
 			if (!strncmp(start, "JPN", 3))
 				*region = 'J';
 			else if (!strncmp(start, "USA", 3))
@@ -191,12 +193,12 @@ static bool GetRegionFromTXT(char* region)
 				*region = 'E';
 			else if (!strncmp(start, "KOR", 3))
 				*region = 'K';
-			
+
 			if (*region != 0)
 			{
 				free(buffer);
 				return true;
-			}	
+			}
 		}
 	}
 	else
@@ -232,7 +234,7 @@ s32 GetSysMenuRegion(u16* version, char* region)
 bool VersionIsOriginal(u16 version)
 {
 	s32 i;
-	
+
 	for (i = 0; i < VersionListSize; i++)
 	{
 		if (VersionList[i] == version)
@@ -286,7 +288,7 @@ static u32 GetSysMenuBootContent(void)
 		return 0;
 	}
 
-	ret = ES_GetStoredTMD(0x100000002LL, (u8*)s_tmd, size);
+	ret = ES_GetStoredTMD(0x100000002LL, s_tmd, size);
 	if (ret < 0)
 	{
 		printf("Error! ES_GetStoredTMD failed (ret=%i)\n", ret);
@@ -326,7 +328,7 @@ bool GetSysMenuExecPath(char path[ISFS_MAXPATH], bool mainDOL)
 bool IsPriiloaderInstalled()
 {
 	char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(0x20);
-	
+
 	if (!GetSysMenuExecPath(path, true))
 		return false;
 
@@ -339,7 +341,7 @@ bool IsPriiloaderInstalled()
 static bool BackUpPriiloader()
 {
 	char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(0x20);
-	
+
 	if (!GetSysMenuExecPath(path, false))
 		return false;
 
@@ -350,7 +352,7 @@ static bool BackUpPriiloader()
 		printf("Error! NANDBackUpFile: Failed! (Error: %d)\n", ret);
 		return false;
 	}
-						
+
 	ret = NANDGetFileSize("/tmp/priiload.app", &gPriiloaderSize);
 
 	return (gPriiloaderSize == size);
@@ -403,7 +405,7 @@ static bool RestorePriiloader()
 
 static void PrintCleanupResult(s32 result)
 {
-	
+
 	if (result < 0)
 	{
 		switch (result)
@@ -446,9 +448,9 @@ static void CleanupPriiloaderLeftOvers(bool retain)
 		printf("\r\t\t>> File: main.bin...");
 		PrintCleanupResult(NANDDeleteFile("/title/00000001/00000002/data/main.bin"));
 	}
-	
+
 	printf("\n\t\tRemoving Priiloader hacks...\n");
-	
+
 	printf("\r\t\t>> File: hacks_s.ini...");
 	PrintCleanupResult(NANDDeleteFile("/title/00000001/00000002/data/hacks_s.ini"));
 	printf("\r\t\t>> File: hacks.ini...");
@@ -462,7 +464,7 @@ static void CleanupPriiloaderLeftOvers(bool retain)
 	{
 		printf("\n\t\tPriiloader hacks will be reset!\n");
 		printf("\t\tRemember to set them again.\n");
-	}	
+	}
 }
 
 static bool CompareHashes(bool priiloader)
@@ -488,7 +490,7 @@ static bool CompareHashes(bool priiloader)
 		free(dataA);
 		return false;
 	}
-	
+
 	bool ret = (sizeA == sizeB) && !CompareHash(dataA, sizeA, dataB, sizeB);
 
 	free(dataA);
@@ -550,17 +552,51 @@ out:
 	return ret;
 }
 
-void __Wad_FixTicket(signed_blob *p_tik)
-{
-	u8 *data = (u8 *)p_tik;
-	u8 *ckey = data + 0x1F1;
+static const aeskey
+	WiiCommonKey  = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48, 0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7 },
+	vWiiCommonKey = { 0x30, 0xbf, 0xc7, 0x6e, 0x7c, 0x19, 0xaf, 0xbb, 0x23, 0x16, 0x33, 0x30, 0xce, 0xd7, 0xc2, 0x8d };
 
+void __Wad_FixTicket(signed_blob *s_tik)
+{
+	tik* p_tik = SIGNATURE_PAYLOAD(s_tik);
+	u8 *ckey = ((u8*)s_tik) + 0x1F1;
+
+	/*
+	 * Alright. I'd hate to pull this off on signed tickets using the vWii common key.
+	 * But this already does it, just without re-crypting the title key. So let's do it.
+	 */
+	bool fixKey = *ckey == 2;
 	if (*ckey > 1) {
 		/* Set common key */
 		*ckey = 0;
 
+		/* Fix tickets using vWii Common Key */
+		if (fixKey)
+		{
+			__attribute__((aligned(0x10)))
+			static unsigned char keybuf[0x10], iv[0x10];
+
+			u8* titlekey = p_tik->cipher_title_key;
+			u64* titleid = &p_tik->titleid;
+
+			memcpy(keybuf, titlekey, sizeof(keybuf));
+			memcpy(iv, titleid, sizeof(u64));
+			memset(iv + 8, 0, sizeof(iv) - 8);
+
+			AES_Init();
+			AES_Decrypt(vWiiCommonKey, 0x10, iv, 0x10, keybuf, keybuf, sizeof(keybuf));
+
+			memcpy(iv, titleid, sizeof(u64));
+			memset(iv + 8, 0, sizeof(iv) - 8);
+
+			AES_Encrypt(WiiCommonKey, 0x10, iv, 0x10, keybuf, keybuf, sizeof(keybuf));
+
+			memcpy(titlekey, keybuf, sizeof(keybuf));
+			AES_Close();
+		}
+
 		/* Fakesign ticket */
-		Title_FakesignTik(p_tik);
+		Title_FakesignTik(s_tik);
 	}
 }
 

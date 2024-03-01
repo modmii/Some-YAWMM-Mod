@@ -4,6 +4,7 @@
 extern u32 boot2version;
 /* Prototypes */
 bool isIOSstub(u8 ios_number);
+bool tmdIsStubIOS(tmd*);
 bool loadIOS(int ios);
 void Sys_Init(void);
 void Sys_Reboot(void);

@@ -29,6 +29,16 @@ void __Sys_PowerCallback(void)
 		Sys_Shutdown();
 }
 
+bool tmdIsStubIOS(tmd* p_tmd)
+{
+	return
+		p_tmd->sys_version >> 32 == 0
+	&&	p_tmd->num_contents == 3
+	&&	p_tmd->contents[0].type == 0x0001
+	&&	p_tmd->contents[1].type == 0x8001
+	&&	p_tmd->contents[2].type == 0x8001;
+}
+
 bool isIOSstub(u8 ios_number)
 {
 	u32 tmd_size = 0;

@@ -600,6 +600,73 @@ void __Wad_FixTicket(signed_blob *s_tik)
 	}
 }
 
+bool __Wad_VerifyHeader(wadHeader* header)
+{
+	return
+		header->header_len == 0x20
+	&&	header->type == ('I' << 8 | 's')
+	&&	header->padding == 0x00;
+}
+
+/* /shared1/content.map entry */
+typedef struct
+{
+	char filename[8];
+	sha1 hash;
+} ATTRIBUTE_PACKED SharedContent;
+
+bool GetSharedContents(SharedContent** out, u32* count)
+{
+	if (!out || !count) return false;
+
+	int ret;
+	SharedContent* buf = NULL;
+
+	int fd = ret = ISFS_Open("/shared1/content.map", ISFS_OPEN_READ);
+	if (ret < 0)
+		return false;
+
+	int len = ISFS_Seek(fd, 0, SEEK_END);
+	ISFS_Seek(fd, 0, SEEK_SET);
+	if (len <= 0 || len % sizeof(SharedContent))
+		goto fail;
+
+	buf = memalign32(len);
+	if (!buf)
+		goto fail;
+
+	ret = ISFS_Read(fd, buf, len);
+	if (ret != len)
+		goto fail;
+
+	ISFS_Close(fd);
+
+	*out = buf;
+	*count = len / sizeof(SharedContent);
+
+	return true;
+
+fail:
+	ISFS_Close(fd);
+	free(buf);
+	return false;
+}
+
+bool SharedContentPresent(tmd_content* content, SharedContent shared[], u32 count)
+{
+	if (!shared || !content || !count) return false;
+
+	if (!(content->type & 0x8000)) return false;
+
+	for (SharedContent* s_content = shared; s_content < shared + count; s_content++)
+	{
+		if (memcmp(s_content->hash, content->hash, sizeof(sha1)) == 0)
+			return true;
+	}
+
+	return false;
+}
+
 // Some of the safety checks can block region changing
 // Entering the Konami code turns this true, so it will
 // skip the problematic checks for region changing.
@@ -611,9 +678,12 @@ s32 Wad_Install(FILE *fp)
 	wadHeader   *header  = NULL;
 	signed_blob *p_certs = NULL, *p_crl = NULL, *p_tik = NULL, *p_tmd = NULL;
 
+	SharedContent* sharedContents = NULL;
+
 	tmd *tmd_data  = NULL;
 
 	u32 cnt, offset = 0;
+	u32 sharedContentsCount = 0;
 	int ret;
 	u64 tid;
 	bool retainPriiloader = false;
@@ -625,8 +695,14 @@ s32 Wad_Install(FILE *fp)
 	ret = FSOPReadOpenFileA(fp, (void*)&header, offset, sizeof(wadHeader));
 	if (ret != 1)
 		goto err;
-	else
-		offset += round_up(header->header_len, 64);
+
+	if (!__Wad_VerifyHeader(header))
+	{
+		ret = ES_EINVAL;
+		goto err;
+	}
+
+	offset += round_up(header->header_len, 64);
 	
 	//Don't try to install boot2
 	__Wad_GetTitleID(fp, header, &tid);
@@ -642,31 +718,31 @@ s32 Wad_Install(FILE *fp)
 	ret = FSOPReadOpenFileA(fp, (void*)&p_certs, offset, header->certs_len);
 	if (ret != 1)
 		goto err;
-	else
-		offset += round_up(header->certs_len, 64);
+
+	offset += round_up(header->certs_len, 64);
 		
 	/* WAD crl */
 	if (header->crl_len) {
 		ret = FSOPReadOpenFileA(fp, (void*)&p_crl, offset, header->crl_len);
 		if (ret != 1)
 			goto err;
-		else
-			offset += round_up(header->crl_len, 64);
+
+		offset += round_up(header->crl_len, 64);
 	}
 
 	/* WAD ticket */
 	ret = FSOPReadOpenFileA(fp, (void*)&p_tik, offset, header->tik_len);
 	if (ret != 1)
 		goto err;
-	else
-		offset += round_up(header->tik_len, 64);
+
+	offset += round_up(header->tik_len, 64);
 
 	/* WAD TMD */
 	ret = FSOPReadOpenFileA(fp, (void*)&p_tmd, offset, header->tmd_len);
 	if (ret != 1)
 		goto err;
-	else
-		offset += round_up(header->tmd_len, 64);
+
+	offset += round_up(header->tmd_len, 64);
 
 	Con_ClearLine();
 	
@@ -677,13 +753,13 @@ s32 Wad_Install(FILE *fp)
 	if(TITLE_LOWER(tmd_data->sys_version) != 0 && isIOSstub(TITLE_LOWER(tmd_data->sys_version)))
 	{
 		printf("\n    This Title wants IOS%i but the installed version\n    is a stub.\n", TITLE_LOWER(tmd_data->sys_version));
-		ret = -999;
+		ret = -1036;
 		goto err;
 	}
 	
 	if(get_title_ios(TITLE_ID(1, 2)) == tid)
 	{
-		if (( tmd_data->num_contents == 3) && (tmd_data->contents[0].type == 1 && tmd_data->contents[1].type == 0x8001 && tmd_data->contents[2].type == 0x8001))
+		if (tmdIsStubIOS(tmd_data))
 		{
 			printf("\n    I won't install a stub System Menu IOS\n");
 			ret = -999;
@@ -693,7 +769,7 @@ s32 Wad_Install(FILE *fp)
 	
 	if(tid  == get_title_ios(TITLE_ID(0x10008, 0x48414B00 | 'E')) || tid  == get_title_ios(TITLE_ID(0x10008, 0x48414B00 | 'P')) || tid  == get_title_ios(TITLE_ID(0x10008, 0x48414B00 | 'J')) || tid  == get_title_ios(TITLE_ID(0x10008, 0x48414B00 | 'K')))
 	{
-		if ((tmd_data->num_contents == 3) && (tmd_data->contents[0].type == 1 && tmd_data->contents[1].type == 0x8001 && tmd_data->contents[2].type == 0x8001))
+		if (tmdIsStubIOS(tmd_data))
 		{
 			printf("\n    I won't install a stub EULA IOS\n");
 			ret = -999;
@@ -703,16 +779,16 @@ s32 Wad_Install(FILE *fp)
 	
 	if(tid  == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | 'E')) || tid  == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | 'P')) || tid  == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | 'J')) || tid  == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | 'K')))
 	{
-		if ((tmd_data->num_contents == 3) && (tmd_data->contents[0].type == 1 && tmd_data->contents[1].type == 0x8001 && tmd_data->contents[2].type == 0x8001))
+		if (tmdIsStubIOS(tmd_data))
 		{
-			printf("\n    I won't install a stub rgsel IOS\n");
+			printf("\n    I won't install a stub rgnsel IOS\n");
 			ret = -999;
 			goto err;
 		}
 	}
 	if (tid == get_title_ios(TITLE_ID(0x10001, 0x48415858)) || tid == get_title_ios(TITLE_ID(0x10001, 0x4A4F4449)))
 	{
-		if ( ( tmd_data->num_contents == 3) && (tmd_data->contents[0].type == 1 && tmd_data->contents[1].type == 0x8001 && tmd_data->contents[2].type == 0x8001) )
+		if (tmdIsStubIOS(tmd_data))
 		{
 			printf("\n    Are you sure you wan't to install a stub HBC IOS?\n");
 			printf("\n    Press A to continue.\n");
@@ -750,7 +826,7 @@ s32 Wad_Install(FILE *fp)
 		
 		if(region == 0)
 		{
-			printf("\n    Unkown System menu region\n    Please check the site for updates\n");
+			printf("\n    Unknown System menu region\n    Please check the site for updates\n");
 			
 			ret = -999;
 			goto err;
@@ -865,6 +941,9 @@ skipChecks:
 	ret = ES_AddTitleStart(p_tmd, header->tmd_len, p_certs, header->certs_len, p_crl, header->crl_len);
 	if (ret < 0)
 		goto err;
+
+	/* Get list of currently installed shared contents */
+	GetSharedContents(&sharedContents, &sharedContentsCount);
 	
 	/* Install contents */
 	for (cnt = 0; cnt < tmd_data->num_contents; cnt++) 
@@ -874,13 +953,18 @@ skipChecks:
 		u32 idx = 0, len;
 		s32 cfd;
 
-		Con_ClearLine();
-
-		printf("\r\t\t>> Installing content #%02d...", content->cid);
-		fflush(stdout);
-
 		/* Encrypted content size */
 		len = round_up(content->size, 64);
+
+		if (SharedContentPresent(content, sharedContents, sharedContentsCount))
+		{
+			offset += len;
+			continue;
+		}
+
+		Con_ClearLine();
+		printf("\r\t\t>> Installing content #%02d...", content->cid);
+		fflush(stdout);
 
 		/* Install content */
 		cfd = ES_AddContentStart(tmd_data->title_id, content->cid);
@@ -1051,6 +1135,7 @@ out:
 	free(p_crl);
 	free(p_tik);
 	free(p_tmd);
+	free(sharedContents);
 
 	if (gForcedInstall)
 		return Wad_Install(fp);
@@ -1132,7 +1217,7 @@ s32 Wad_Uninstall(FILE *fp)
 	if((tid  == TITLE_ID(0x10008, 0x48414B00 | 'E') || tid  == TITLE_ID(0x10008, 0x48414B00 | 'P') || tid  == TITLE_ID(0x10008, 0x48414B00 | 'J') || tid  == TITLE_ID(0x10008, 0x48414B00 | 'K') 
 		|| (tid  == TITLE_ID(0x10008, 0x48414C00 | 'E') || tid  == TITLE_ID(0x10008, 0x48414C00 | 'P') || tid  == TITLE_ID(0x10008, 0x48414C00 | 'J') || tid  == TITLE_ID(0x10008, 0x48414C00 | 'K'))) && region == 0)
 	{
-		printf("\n    Unkown SM region\n    Please check the site for updates\n");
+		printf("\n    Unknown SM region\n    Please check the site for updates\n");
 		ret = -999;
 		goto out;
 	}
@@ -1144,7 +1229,7 @@ s32 Wad_Uninstall(FILE *fp)
 	}	
 	if(tid  == TITLE_ID(0x10008, 0x48414C00 | region))
 	{
-		printf("\n    I won't uninstall rgsel\n");
+		printf("\n    I won't uninstall rgnsel\n");
 		ret = -999;
 		goto out;
 	}	
@@ -1156,7 +1241,7 @@ s32 Wad_Uninstall(FILE *fp)
 	}	
 	if(tid  == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | region)))
 	{
-		printf("\n    I won't uninstall the rgsel IOS\n");
+		printf("\n    I won't uninstall the rgnsel IOS\n");
 		ret = -999;
 		goto out;
 	}

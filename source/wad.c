@@ -1264,6 +1264,14 @@ s32 Wad_Uninstall(FILE *fp)
 		/* Delete all tickets */
 		for (cnt = 0; cnt < viewCnt; cnt++) {
 			memcpy(&view, viewData + cnt, sizeof(tikview));
+
+			if (view.devicetype)
+			{
+				u32 deviceID = 0;
+				/* If we failed to get the ID or it actually matches, skip this */
+				if (ES_GetDeviceID(&deviceID) || view.devicetype == deviceID) continue;
+			}
+
 			ret = ES_DeleteTicket(&view);
 			if (ret < 0)
 				break;

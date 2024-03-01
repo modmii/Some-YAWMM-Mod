@@ -552,7 +552,9 @@ out:
 	return ret;
 }
 
-static const aeskey WiiCommonKey = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48, 0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7 };
+static const aeskey
+	WiiCommonKey  = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48, 0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7 },
+	vWiiCommonKey = { 0x30, 0xbf, 0xc7, 0x6e, 0x7c, 0x19, 0xaf, 0xbb, 0x23, 0x16, 0x33, 0x30, 0xce, 0xd7, 0xc2, 0x8d };
 
 void __Wad_FixTicket(signed_blob *s_tik)
 {
@@ -574,20 +576,27 @@ void __Wad_FixTicket(signed_blob *s_tik)
 			__attribute__((aligned(0x10)))
 			static unsigned char keybuf[0x10], iv[0x10];
 
-			u8* titlekey = &p_tik->cipher_title_key;
+			u8* titlekey = p_tik->cipher_title_key;
 			u64* titleid = &p_tik->titleid;
 
 			memcpy(keybuf, titlekey, sizeof(keybuf));
 			memcpy(iv, titleid, sizeof(u64));
-			memset(iv + 8, 0, sizeof(iv) - sizeof(u64));
+			memset(iv + 8, 0, sizeof(iv) - 8);
+
 			AES_Init();
-			int ret = AES_Decrypt(WiiCommonKey, 0x10, iv, 0x10, keybuf, keybuf, 0x10);
-			printf("decrypt:%i\n", ret);
+			AES_Decrypt(vWiiCommonKey, 0x10, iv, 0x10, keybuf, keybuf, sizeof(keybuf));
+
+			memcpy(iv, titleid, sizeof(u64));
+			memset(iv + 8, 0, sizeof(iv) - 8);
+
+			AES_Encrypt(WiiCommonKey, 0x10, iv, 0x10, keybuf, keybuf, sizeof(keybuf));
+
 			memcpy(titlekey, keybuf, sizeof(keybuf));
+			AES_Close();
 		}
 
 		/* Fakesign ticket */
-		Title_FakesignTik(p_tik);
+		Title_FakesignTik(s_tik);
 	}
 }
 

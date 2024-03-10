@@ -647,7 +647,7 @@ int Menu_BatchProcessWads(fatFile *files, int fileCount, char *inFilePath, int i
 
 				if (thisFile->installstate < 0)
 				{
-					printf("    %.40s ", thisFile->filename);
+					printf("    %.40s: ", thisFile->filename);
 					i++;
 					
 					
@@ -657,7 +657,10 @@ int Menu_BatchProcessWads(fatFile *files, int fileCount, char *inFilePath, int i
 						case -996:	puts("Read error"); break;
 						case -998:	puts("Skipped"); break;
 						case -999:	puts("BRICK BLOCKED"); break;
-						case -1036:	puts("Needed IOS missing"); break;
+						case -1010:	puts("Wii System memory full!");
+						case -1022:	puts("Content hash mismatch"); break;
+						case -1035:	puts("Newer version already installed"); break;
+						case -1036:	puts("Needed IOS missing!"); break;
 						case -2011:	puts("No trucha bug?"); break;
 						/*
 						 * from libogc.

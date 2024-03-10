@@ -187,6 +187,8 @@ static bool GetRegionFromTXT(char* region)
 
 			if (!strncmp(start, "JPN", 3))
 				*region = 'J';
+			else if (!strncmp(start, "TWN", 3))
+				*region = 'J';
 			else if (!strncmp(start, "USA", 3))
 				*region = 'U';
 			else if (!strncmp(start, "EUR", 3))

@@ -185,16 +185,17 @@ static bool GetRegionFromTXT(char* region)
 		{
 			start++;
 
-			if (!strncmp(start, "JPN", 3))
+			if (!strncmp(start, "JPN", 3) || !strncmp(start, "TWN", 3) || !strncmp(start, "ROC", 3))
 				*region = 'J';
-			else if (!strncmp(start, "TWN", 3))
-				*region = 'J';
-			else if (!strncmp(start, "USA", 3))
+			else if (!strncmp(start, "USA", 3) || !strncmp(start, "BRA", 3) || !strncmp(start, "HKG", 3) ||
+					 !strncmp(start, "ASI", 3) || !strncmp(start, "LTN", 3) || !strncmp(start, "SAF", 3))
 				*region = 'U';
-			else if (!strncmp(start, "EUR", 3))
+			else if (!strncmp(start, "EUR", 3) || !strncmp(start, "AUS", 3))
 				*region = 'E';
 			else if (!strncmp(start, "KOR", 3))
 				*region = 'K';
+			else if (!strncmp(start, "CHN", 3))
+				printf("Error! GetRegionFromTXT: Unhandled product area \"CHN\"!\n");
 
 			if (*region != 0)
 			{

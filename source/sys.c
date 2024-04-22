@@ -243,7 +243,7 @@ s32 Sys_GetSharedContents(SharedContent** out, u32* count)
 
 	int ret = 0;
 	u32 size;
-	SharedContent* buf = NANDLoadFile("/shared1/content.map", &size);
+	SharedContent* buf = (SharedContent*)NANDLoadFile("/shared1/content.map", &size);
 
 	if (!buf)
 		return (s32)size;

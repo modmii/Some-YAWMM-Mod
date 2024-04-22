@@ -6,6 +6,7 @@
 #include <ogc/es.h>
 
 #include "sha1.h"
+#include "aes.h"
 #include "utils.h"
 #include "otp.h"
 #include "malloc.h"

@@ -571,7 +571,6 @@ bool __Wad_FixTicket(signed_blob *s_tik)
 		{
 			__attribute__ ((aligned(0x10)))
 			aeskey tkeybuf;
-			aeskey commonkey;
 			u64 iv[2];
 
 			memcpy(tkeybuf, p_tik->cipher_title_key, sizeof(aeskey));

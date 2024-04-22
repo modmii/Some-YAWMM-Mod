@@ -183,6 +183,8 @@ int main(int argc, char **argv)
 	WKB_Initialize();
 	WIILIGHT_Init();
 
+	Title_SetupCommonKeys();
+
 	/* Print disclaimer */
 	//Disclaimer();
 	

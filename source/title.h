@@ -1,8 +1,13 @@
 #ifndef _TITLE_H_
 #define _TITLE_H_
 
+#include <ogc/es.h>
+
 /* Constants */
 #define BLOCK_SIZE	0x4000
+
+/* Variables */
+extern aeskey WiiCommonKey, vWiiCommonKey;
 
 /* Prototypes */
 s32 Title_ZeroSignature(signed_blob *);

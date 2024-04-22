@@ -3,9 +3,11 @@
 #include <string.h>
 #include <limits.h>
 #include <ogcsys.h>
+#include <ogc/es.h>
 
 #include "sha1.h"
 #include "utils.h"
+#include "otp.h"
 #include "malloc.h"
 
 s32 Title_ZeroSignature(signed_blob *p_sig)
@@ -315,3 +317,28 @@ out:
 
 	return ret;
 }
+
+__attribute__((aligned(0x10)))
+aeskey WiiCommonKey, vWiiCommonKey;
+
+void Title_SetupCommonKeys(void)
+{
+	static bool keys_ok = false;
+	if (keys_ok)
+		return;
+
+	// Grab the Wii common key...
+	otp_read(WiiCommonKey, offsetof(otp_t, common_key), sizeof(aeskey));
+
+	// ...and decrypt the vWii common key with it.
+	static const unsigned char vwii_key_enc_bin[0x10] = { 0x6e, 0x18, 0xdb, 0x23, 0x84, 0x7c, 0xba, 0x6c, 0x19, 0x31, 0xa4, 0x17, 0x9b, 0xaf, 0x8e, 0x09 };
+	unsigned char iv[0x10] = {};
+
+	memcpy(vWiiCommonKey, vwii_key_enc_bin, sizeof(vwii_key_enc_bin));
+	AES_Init();
+	AES_Decrypt(WiiCommonKey, sizeof(aeskey), iv, sizeof(iv), vWiiCommonKey, vWiiCommonKey, sizeof(aeskey));
+	AES_Close();
+
+	keys_ok = true;
+	return;
+};

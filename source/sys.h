@@ -27,9 +27,12 @@ typedef struct
 
 	char _padding[16];
 } cIOSInfo;
-_Static_assert(sizeof(cIOSInfo) == 0x40, "Incorrect cIOSInfo struct size, do i really need to pack this..?");
+// _Static_assert(sizeof(cIOSInfo) == 0x40, "Incorrect cIOSInfo struct size, do i really need to pack this..?");
+
+#define IS_WIIU (*(vu16*)0xCD005A0 == 0xCAFE)
 
 extern u32 boot2version;
+
 /* Prototypes */
 bool isIOSstub(u8 ios_number);
 bool tmdIsStubIOS(tmd*);

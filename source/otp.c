@@ -8,14 +8,11 @@
 #define HW_OTP_DATA     (*(vu32*)0xCD8001F0)
 
 #define HW_OTP_BLK_SIZE 4
-#define HW_OTP_BLK_CNT  (OTP_BANK_SIZE / HW_OTP_BLK_SIZE)
+#define HW_OTP_BLK_CNT  (OTP_SIZE / HW_OTP_BLK_SIZE)
 
-u8 otp_read(void *dst, OTPBank bank, u8 offset, u8 size)
+u8 otp_read(void *dst, u8 offset, u8 size)
 {
-    if (!dst || bank > 7 || offset >= OTP_BANK_SIZE || !size || (offset + size) > OTP_BANK_SIZE) return 0;
-
-    /* This is not a Wii U. */
-    if (bank != 0 && read16(0xCD8005A0) != 0xCAFE) return 0;
+    if (!dst || offset >= OTP_SIZE || !size || (offset + size) > OTP_SIZE) return 0;
 
     u8 cur_offset = 0;
 
@@ -42,7 +39,7 @@ u8 otp_read(void *dst, OTPBank bank, u8 offset, u8 size)
         if (cur_offset >= size) break;
 
         // Send command + address
-        HW_OTP_COMMAND = (0x80000000 | bank << 8 | i);
+        HW_OTP_COMMAND = (0x80000000 | i);
 
         // Receive data
         *((u32*)val) = HW_OTP_DATA;

@@ -54,9 +54,7 @@ bool ES_CheckHasKoreanKey(void)
 	if (seeprom_read(korean_key, offsetof(struct SEEPROM, korean_key), sizeof(korean_key)) != sizeof(korean_key))
 		return false;
 
-	AES_Init();
 	AES_Decrypt(korean_key, 0x10, iv, 0x10, data, data, sizeof(data));
-	AES_Close();
 
 	//	return (!strcmp((char*) data, "thepikachugamer")) Just remembered that this is how the Trucha bug came to be
 	return (!memcmp(data, "thepikachugamer", sizeof(data)));

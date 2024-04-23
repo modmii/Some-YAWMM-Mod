@@ -577,7 +577,6 @@ bool __Wad_FixTicket(signed_blob *s_tik)
 			iv[0] = p_tik->titleid;
 			iv[1] = 0;
 
-			AES_Init();
 			AES_Decrypt(vWiiCommonKey, 0x10, iv, 0x10, tkeybuf, tkeybuf, sizeof(tkeybuf));
 
 			iv[0] = p_tik->titleid;
@@ -586,7 +585,6 @@ bool __Wad_FixTicket(signed_blob *s_tik)
 			AES_Encrypt(WiiCommonKey, 0x10, iv, 0x10, tkeybuf, tkeybuf, sizeof(tkeybuf));
 
 			memcpy(p_tik->cipher_title_key, tkeybuf, sizeof(tkeybuf));
-			AES_Close();
 		}
 
 		/* Fakesign ticket */
@@ -691,9 +689,9 @@ s32 Wad_Install(FILE *fp)
 
 	if (TITLE_UPPER(tmd_data->sys_version) == 0) // IOS
 	{
-		if (isvWiiTitle && !IS_WIIU)
+		if (isvWiiTitle ^ IS_WIIU) // xor is one of my favourite binary operators of all time
 		{
-			printf("\n    Cannot install vWii IOS on Wii.\n");
+			printf("\n    Cannot install vWii IOS on Wii (and vice versa).\n");
 			ret = -999;
 			goto err;
 		}
@@ -707,9 +705,53 @@ s32 Wad_Install(FILE *fp)
 				goto err;
 			}
 
-			else if (tid == TITLE_ID(1, 70) || tid == TITLE_ID(1, 80))
+			// this code feels like a MESS
+			else if (!IS_WIIU && (tid == TITLE_ID(1, 70) || tid == TITLE_ID(1, 80)))
 			{
-				/* Check build tag here */
+				tik* ticket = (tik*)SIGNATURE_PAYLOAD(p_tik);
+
+				__aligned(0x10)
+				aeskey titlekey;
+				u64 iv[2] = { tid };
+
+
+				memcpy(titlekey, ticket->cipher_title_key, sizeof(aeskey));
+				AES_Decrypt(WiiCommonKey, sizeof(aeskey), iv, sizeof(iv), titlekey, titlekey, sizeof(aeskey));
+
+				u32 content0_offset = offset;
+				for (tmd_content* con = tmd_data->contents; con < tmd_data->contents + tmd_data->num_contents; con++)
+				{
+					if (con->index == 0) break;
+					content0_offset += round_up(con->size, 0x40);
+				}
+
+				__aligned(0x20)
+				cIOSInfo build_tag = {};
+
+				printf("build_tag@%p\n", &build_tag);
+				__asm__ volatile ( ".long -1" );
+
+				ret = FSOPReadOpenFile(fp, (void*)&build_tag, content0_offset, sizeof(cIOSInfo));
+				if (ret != 1)
+					goto err;
+
+				iv[0] = 0;
+				iv[1] = 0;
+				AES_Decrypt(titlekey, sizeof(aeskey), iv, sizeof(iv), &build_tag, &build_tag, sizeof(cIOSInfo));
+
+				if (build_tag.hdr_magic != CIOS_INFO_MAGIC ||
+					build_tag.hdr_version != CIOS_INFO_VERSION ||
+					(build_tag.ios_base != 60 && ES_CheckHasKoreanKey()))
+				{
+					printf("\n"
+						"	Installing this System menu IOS will brick your Wii.\n"
+						"	Please remove the Korean key via KoreanKii,\n"
+						"	then try again.\n\n"
+					);
+
+					ret = -999;
+					goto err;
+				}
 			}
 		}
 		

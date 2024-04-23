@@ -336,9 +336,7 @@ void Title_SetupCommonKeys(void)
 	unsigned char iv[0x10] = {};
 
 	memcpy(vWiiCommonKey, vwii_key_enc_bin, sizeof(vwii_key_enc_bin));
-	AES_Init();
 	AES_Decrypt(WiiCommonKey, sizeof(aeskey), iv, sizeof(iv), vWiiCommonKey, vWiiCommonKey, sizeof(aeskey));
-	AES_Close();
 
 	keys_ok = true;
 	return;

@@ -728,9 +728,6 @@ s32 Wad_Install(FILE *fp)
 				__aligned(0x20)
 				cIOSInfo build_tag = {};
 
-				printf("build_tag@%p\n", &build_tag);
-				__asm__ volatile ( ".long -1" );
-
 				ret = FSOPReadOpenFile(fp, (void*)&build_tag, content0_offset, sizeof(cIOSInfo));
 				if (ret != 1)
 					goto err;

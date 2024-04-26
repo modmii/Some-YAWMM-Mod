@@ -569,7 +569,7 @@ bool __Wad_FixTicket(signed_blob *s_tik)
 		/* Fix tickets using vWii Common Key */
 		if (fixvWiiKey)
 		{
-			__attribute__ ((aligned(0x10)))
+			__aligned(0x20)
 			aeskey tkeybuf;
 			u64 iv[2];
 

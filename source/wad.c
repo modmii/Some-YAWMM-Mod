@@ -9,6 +9,8 @@
 #include "title.h"
 #include "utils.h"
 #include "aes.h"
+#include "mini_seeprom.h"
+#include "otp.h"
 #include "video.h"
 #include "wad.h"
 #include "wpad.h"
@@ -555,52 +557,42 @@ out:
 	return ret;
 }
 
-static const aeskey
-	WiiCommonKey  = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48, 0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7 },
-	vWiiCommonKey = { 0x30, 0xbf, 0xc7, 0x6e, 0x7c, 0x19, 0xaf, 0xbb, 0x23, 0x16, 0x33, 0x30, 0xce, 0xd7, 0xc2, 0x8d };
-
-void __Wad_FixTicket(signed_blob *s_tik)
+bool __Wad_FixTicket(signed_blob *s_tik)
 {
 	tik* p_tik = SIGNATURE_PAYLOAD(s_tik);
 	u8 *ckey = ((u8*)s_tik) + 0x1F1;
 
-	/*
-	 * Alright. I'd hate to pull this off on signed tickets using the vWii common key.
-	 * But this already does it, just without re-crypting the title key. So let's do it.
-	 */
-	bool fixKey = *ckey == 2;
+	bool fixvWiiKey = *ckey == 2;
 	if (*ckey > 1) {
 		/* Set common key */
 		*ckey = 0;
 
 		/* Fix tickets using vWii Common Key */
-		if (fixKey)
+		if (fixvWiiKey)
 		{
-			__attribute__((aligned(0x10)))
-			static unsigned char keybuf[0x10], iv[0x10];
+			__aligned(0x20)
+			aeskey tkeybuf;
+			u64 iv[2];
 
-			u8* titlekey = p_tik->cipher_title_key;
-			u64* titleid = &p_tik->titleid;
+			memcpy(tkeybuf, p_tik->cipher_title_key, sizeof(aeskey));
+			iv[0] = p_tik->titleid;
+			iv[1] = 0;
 
-			memcpy(keybuf, titlekey, sizeof(keybuf));
-			memcpy(iv, titleid, sizeof(u64));
-			memset(iv + 8, 0, sizeof(iv) - 8);
+			AES_Decrypt(vWiiCommonKey, 0x10, iv, 0x10, tkeybuf, tkeybuf, sizeof(tkeybuf));
 
-			AES_Init();
-			AES_Decrypt(vWiiCommonKey, 0x10, iv, 0x10, keybuf, keybuf, sizeof(keybuf));
+			iv[0] = p_tik->titleid;
+			iv[1] = 0;
 
-			memcpy(iv, titleid, sizeof(u64));
-			memset(iv + 8, 0, sizeof(iv) - 8);
+			AES_Encrypt(WiiCommonKey, 0x10, iv, 0x10, tkeybuf, tkeybuf, sizeof(tkeybuf));
 
-			AES_Encrypt(WiiCommonKey, 0x10, iv, 0x10, keybuf, keybuf, sizeof(keybuf));
-
-			memcpy(titlekey, keybuf, sizeof(keybuf));
-			AES_Close();
+			memcpy(p_tik->cipher_title_key, tkeybuf, sizeof(tkeybuf));
 		}
 
 		/* Fakesign ticket */
 		Title_FakesignTik(s_tik);
 	}
+
+	return fixvWiiKey;
 }
 
 bool __Wad_VerifyHeader(wadHeader* header)
@@ -609,65 +601,6 @@ bool __Wad_VerifyHeader(wadHeader* header)
 		header->header_len == 0x20
 	&&	header->type == ('I' << 8 | 's')
 	&&	header->padding == 0x00;
-}
-
-/* /shared1/content.map entry */
-typedef struct
-{
-	char filename[8];
-	sha1 hash;
-} ATTRIBUTE_PACKED SharedContent;
-
-bool GetSharedContents(SharedContent** out, u32* count)
-{
-	if (!out || !count) return false;
-
-	int ret;
-	SharedContent* buf = NULL;
-
-	int fd = ret = ISFS_Open("/shared1/content.map", ISFS_OPEN_READ);
-	if (ret < 0)
-		return false;
-
-	int len = ISFS_Seek(fd, 0, SEEK_END);
-	ISFS_Seek(fd, 0, SEEK_SET);
-	if (len <= 0 || len % sizeof(SharedContent))
-		goto fail;
-
-	buf = memalign32(len);
-	if (!buf)
-		goto fail;
-
-	ret = ISFS_Read(fd, buf, len);
-	if (ret != len)
-		goto fail;
-
-	ISFS_Close(fd);
-
-	*out = buf;
-	*count = len / sizeof(SharedContent);
-
-	return true;
-
-fail:
-	ISFS_Close(fd);
-	free(buf);
-	return false;
-}
-
-bool SharedContentPresent(tmd_content* content, SharedContent shared[], u32 count)
-{
-	if (!shared || !content || !count) return false;
-
-	if (!(content->type & 0x8000)) return false;
-
-	for (SharedContent* s_content = shared; s_content < shared + count; s_content++)
-	{
-		if (memcmp(s_content->hash, content->hash, sizeof(sha1)) == 0)
-			return true;
-	}
-
-	return false;
 }
 
 // Some of the safety checks can block region changing
@@ -738,6 +671,8 @@ s32 Wad_Install(FILE *fp)
 	if (ret != 1)
 		goto err;
 
+	bool isvWiiTitle = __Wad_FixTicket(p_tik);
+
 	offset += round_up(header->tik_len, 64);
 
 	/* WAD TMD */
@@ -752,180 +687,263 @@ s32 Wad_Install(FILE *fp)
 	/* Get TMD info */
 	
 	tmd_data = (tmd *)SIGNATURE_PAYLOAD(p_tmd);
-	
-	if(TITLE_LOWER(tmd_data->sys_version) != 0 && isIOSstub(TITLE_LOWER(tmd_data->sys_version)))
+
+	if (TITLE_UPPER(tmd_data->sys_version) == 0) // IOS
 	{
-		printf("\n    This Title wants IOS%i but the installed version\n    is a stub.\n", TITLE_LOWER(tmd_data->sys_version));
-		ret = -1036;
-		goto err;
-	}
-	
-	if(get_title_ios(TITLE_ID(1, 2)) == tid)
-	{
-		if (tmdIsStubIOS(tmd_data))
+		if ((isvWiiTitle || tmd_data->vwii_title)  ^ IS_WIIU) // xor is one of my favourite binary operators of all time
 		{
-			printf("\n    I won't install a stub System Menu IOS\n");
+			printf("\n    Cannot install vWii IOS on Wii\n    or Wii IOS on vWii.\n");
 			ret = -999;
 			goto err;
 		}
-	}
-	
-	if(tid  == get_title_ios(TITLE_ID(0x10008, 0x48414B00 | 'E')) || tid  == get_title_ios(TITLE_ID(0x10008, 0x48414B00 | 'P')) || tid  == get_title_ios(TITLE_ID(0x10008, 0x48414B00 | 'J')) || tid  == get_title_ios(TITLE_ID(0x10008, 0x48414B00 | 'K')))
-	{
-		if (tmdIsStubIOS(tmd_data))
+
+		if(tid == get_title_ios(TITLE_ID(1, 2)))
 		{
-			printf("\n    I won't install a stub EULA IOS\n");
-			ret = -999;
-			goto err;
-		}
-	}
-	
-	if(tid  == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | 'E')) || tid  == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | 'P')) || tid  == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | 'J')) || tid  == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | 'K')))
-	{
-		if (tmdIsStubIOS(tmd_data))
-		{
-			printf("\n    I won't install a stub rgnsel IOS\n");
-			ret = -999;
-			goto err;
-		}
-	}
-	if (tid == get_title_ios(TITLE_ID(0x10001, 0x48415858)) || tid == get_title_ios(TITLE_ID(0x10001, 0x4A4F4449)))
-	{
-		if (tmdIsStubIOS(tmd_data))
-		{
-			printf("\n    Are you sure you wan't to install a stub HBC IOS?\n");
-			printf("\n    Press A to continue.\n");
-			printf("    Press B skip.");
-		
-			u32 buttons = WaitButtons();
-		
-			if (!(buttons & WPAD_BUTTON_A))
+			if (tmdIsStubIOS(tmd_data))
 			{
-				ret = -998;
+				printf("\n    I won't install a stub System Menu IOS\n");
+				ret = -999;
 				goto err;
 			}
-		}
-	}
-	
-	if (tid == TITLE_ID(1, 2))
-	{
-		if (skipRegionSafetyCheck || gForcedInstall)
-			goto skipChecks;
 
-		char region = 0;
-		u16 version = 0;
-
-		GetSysMenuRegion(&version, &region);
-		
-		if (tmd_data->vwii_title)
-		{
-			printf("\n    I won't install a vWii SM by default.\n\n");
-			printf("\n    If you're really sure what you're doing, next time\n");
-			printf("    select your device using Konami...\n\n");
-
-			ret = -999;
-			goto err;
-		}
-		
-		if(region == 0)
-		{
-			printf("\n    Unknown System menu region\n    Please check the site for updates\n");
-			
-			ret = -999;
-			goto err;
-		}
-
-		if (!VersionIsOriginal(tmd_data->title_version))
-		{
-			printf("\n    I won't install an unkown SM versions by default.\n\n");
-			printf("\n    Are you installing a tweaked system menu?\n");
-			printf("\n    If you're really sure what you're doing, next time\n");
-			printf("    select your device using Konami...\n\n");
-
-			ret = -999;
-			goto err;
-		}
-
-		if(region != RegionLookupTable[(tmd_data->title_version & 0x0F)])
-		{
-			printf("\n    I won't install the wrong regions SM by default.\n\n");
-			printf("\n    Are you region changing?\n");
-			printf("\n    If you're really sure what you're doing, next time\n");
-			printf("    select your device using Konami...\n\n");
-			
-			ret = -999;
-			goto err;
-		}
-skipChecks:
-		if(tmd_data->title_version < 416)
-		{
-			if(boot2version == 4)
+			// this code feels like a MESS
+			else if (!IS_WIIU && (tid == TITLE_ID(1, 70) || tid == TITLE_ID(1, 80)))
 			{
-				printf("\n    This version of the System Menu\n    is not compatible with your Wii\n");
+				tik* ticket = (tik*)SIGNATURE_PAYLOAD(p_tik);
+
+				__aligned(0x10)
+				aeskey titlekey;
+				u64 iv[2] = { tid };
+
+
+				memcpy(titlekey, ticket->cipher_title_key, sizeof(aeskey));
+				AES_Decrypt(WiiCommonKey, sizeof(aeskey), iv, sizeof(iv), titlekey, titlekey, sizeof(aeskey));
+
+				u32 content0_offset = offset;
+				for (tmd_content* con = tmd_data->contents; con < tmd_data->contents + tmd_data->num_contents; con++)
+				{
+					if (con->index == 0) break;
+					content0_offset += round_up(con->size, 0x40);
+				}
+
+				__aligned(0x20)
+				cIOSInfo build_tag = {};
+
+				ret = FSOPReadOpenFile(fp, (void*)&build_tag, content0_offset, sizeof(cIOSInfo));
+				if (ret != 1)
+					goto err;
+
+				iv[0] = 0;
+				iv[1] = 0;
+				AES_Decrypt(titlekey, sizeof(aeskey), iv, sizeof(iv), &build_tag, &build_tag, sizeof(cIOSInfo));
+
+				if (build_tag.hdr_magic != CIOS_INFO_MAGIC ||
+					build_tag.hdr_version != CIOS_INFO_VERSION ||
+					(build_tag.ios_base != 60 && ES_CheckHasKoreanKey()))
+				{
+					printf("\n"
+						"	Installing this System menu IOS will brick your Wii.\n"
+						"	Please remove the Korean key via KoreanKii,\n"
+						"	then try again.\n\n"
+					);
+
+					ret = -999;
+					goto err;
+				}
+			}
+		}
+		
+		if(tid  == get_title_ios(TITLE_ID(0x10008, 0x48414B00 | 'E'))
+		|| tid  == get_title_ios(TITLE_ID(0x10008, 0x48414B00 | 'P'))
+		|| tid  == get_title_ios(TITLE_ID(0x10008, 0x48414B00 | 'J'))
+		|| tid  == get_title_ios(TITLE_ID(0x10008, 0x48414B00 | 'K')))
+		{
+			if (tmdIsStubIOS(tmd_data))
+			{
+				printf("\n    I won't install a stub EULA IOS\n");
 				ret = -999;
 				goto err;
 			}
 		}
-
-		if (!gForcedInstall && AHBPROT_DISABLED && IsPriiloaderInstalled())
+		
+		if(tid == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | 'E'))
+		|| tid == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | 'P'))
+		|| tid == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | 'J'))
+		|| tid == get_title_ios(TITLE_ID(0x10008, 0x48414C00 | 'K')))
 		{
-			cleanupPriiloader = true;
-			printf("\n    Priiloader is installed next to the system menu.\n\n");
-			printf("    It is recommended to retain Priiloader as it can\n");
-			printf("    protect your console from being bricked.\n\n");
-			printf("    Press A to retain Priiloader or B to remove.");
-
-			u32 buttons = WaitButtons();
-
-			if ((buttons & WPAD_BUTTON_A))
+			if (tmdIsStubIOS(tmd_data))
 			{
-				retainPriiloader = (BackUpPriiloader() && CompareHashes(true));
-				if (retainPriiloader)
+				printf("\n    I won't install a stub rgnsel IOS\n");
+				ret = -999;
+				goto err;
+			}
+		}
+		if (tid == get_title_ios(TITLE_ID(0x10001, 0x48415858)) || tid == get_title_ios(TITLE_ID(0x10001, 0x4A4F4449)))
+		{
+			if (tmdIsStubIOS(tmd_data))
+			{
+				printf("\n    Are you sure you wan't to install a stub HBC IOS?\n");
+				printf("\n    Press A to continue.\n");
+				printf("    Press B skip.");
+			
+				u32 buttons = WaitButtons();
+			
+				if (!(buttons & WPAD_BUTTON_A))
 				{
-					SetPriiloaderOption(true);
-					Con_ClearLine();
-					printf("\r[+] Priiloader will be retained.\n");
-					fflush(stdout);
+					ret = -998;
+					goto err;
 				}
-				else
+			}
+		}
+	}
+	else // not IOS
+	{
+		if (isIOSstub(TITLE_LOWER(tmd_data->sys_version)))
+		{
+			printf("\n    This Title wants IOS%i but the installed version\n    is a stub.\n", TITLE_LOWER(tmd_data->sys_version));
+			ret = -1036;
+			goto err;
+		}
+		
+		
+		
+		if (tid == TITLE_ID(1, 2))
+		{
+			if (skipRegionSafetyCheck || gForcedInstall)
+				goto skipChecks;
+
+			char region = 0;
+			u16 version = 0;
+
+			GetSysMenuRegion(&version, &region);
+			
+			if (isvWiiTitle || tmd_data->vwii_title) // && !IS_WIIU ? :thinking:
+			{
+				printf("\n    I won't install a vWii SM by default.\n\n");
+				printf("\n    If you're really sure what you're doing, next time\n");
+				printf("    select your device using Konami...\n\n");
+
+				ret = -999;
+				goto err;
+			}
+			
+			if(region == 0)
+			{
+				printf("\n    Unknown System menu region\n    Please check the site for updates\n");
+				
+				ret = -999;
+				goto err;
+			}
+
+			if (!VersionIsOriginal(tmd_data->title_version))
+			{
+				printf("\n    I won't install an unkown SM versions by default.\n\n");
+				printf("\n    Are you installing a tweaked system menu?\n");
+				printf("\n    If you're really sure what you're doing, next time\n");
+				printf("    select your device using Konami...\n\n");
+
+				ret = -999;
+				goto err;
+			}
+
+			if(region != RegionLookupTable[(tmd_data->title_version & 0x0F)])
+			{
+				printf("\n    I won't install the wrong regions SM by default.\n\n");
+				printf("\n    Are you region changing?\n");
+				printf("\n    If you're really sure what you're doing, next time\n");
+				printf("    select your device using Konami...\n\n");
+				
+				ret = -999;
+				goto err;
+			}
+
+			if ((tmd_data->title_version & 0x1F) != 0x6	// 0x6 = KR
+			&&	(tmd_data->title_version >> 5) >= 15)	// 4.2 or later
+			{
+				cIOSInfo ios_info;
+
+				if (!Sys_GetcIOSInfo(TITLE_LOWER(tmd_data->sys_version), &ios_info) ||
+					(ios_info.ios_base != 60 && ES_CheckHasKoreanKey()))
 				{
-					Con_ClearLine();
-					printf("\r    Couldn't backup Priiloader.\n");
-					fflush(stdout);
-					printf("\n    Press A to continue or B to skip");
+					printf("\n"
+						"	Installing this System menu will brick your Wii.\n"
+						"	Please remove the Korean key via KoreanKii,\n"
+						"	then try again.\n\n"
+					);
 
-					u32 buttons = WaitButtons();
+					ret = -999;
+					goto err;
+				}
+			}
 
-					if (!(buttons & WPAD_BUTTON_A))
+skipChecks:
+			if (tmd_data->title_version < 416)
+			{
+				if(boot2version == 4)
+				{
+					printf("\n    This version of the System Menu\n    is not compatible with your Wii\n");
+					ret = -999;
+					goto err;
+				}
+			}
+
+			if (!gForcedInstall && AHBPROT_DISABLED && IsPriiloaderInstalled())
+			{
+				cleanupPriiloader = true;
+				printf("\n    Priiloader is installed next to the system menu.\n\n");
+				printf("    It is recommended to retain Priiloader as it can\n");
+				printf("    protect your console from being bricked.\n\n");
+				printf("    Press A to retain Priiloader or B to remove.");
+
+				u32 buttons = WaitButtons();
+
+				if ((buttons & WPAD_BUTTON_A))
+				{
+					retainPriiloader = (BackUpPriiloader() && CompareHashes(true));
+					if (retainPriiloader)
 					{
-						ret = -990;
-						goto err;
+						SetPriiloaderOption(true);
+						Con_ClearLine();
+						printf("\r[+] Priiloader will be retained.\n");
+						fflush(stdout);
+					}
+					else
+					{
+						Con_ClearLine();
+						printf("\r    Couldn't backup Priiloader.\n");
+						fflush(stdout);
+						printf("\n    Press A to continue or B to skip");
+
+						u32 buttons = WaitButtons();
+
+						if (!(buttons & WPAD_BUTTON_A))
+						{
+							ret = -990;
+							goto err;
+						}
 					}
 				}
-			}
 
-			if (!retainPriiloader)
+				if (!retainPriiloader)
+				{
+					SetPriiloaderOption(false);
+					Con_ClearLine();
+					printf("\r[+] Priiloader will be removed.\n");
+					fflush(stdout);
+				}
+			}
+			else
 			{
 				SetPriiloaderOption(false);
-				Con_ClearLine();
-				printf("\r[+] Priiloader will be removed.\n");
-				fflush(stdout);
 			}
 		}
-		else
+		
+		if (gForcedInstall)
 		{
-			SetPriiloaderOption(false);
+			gForcedInstall = false;
+			cleanupPriiloader = true;
 		}
 	}
-	
-	if (gForcedInstall)
-	{
-		gForcedInstall = false;
-		cleanupPriiloader = true;
-	}
-
-	/* Fix ticket */
-	__Wad_FixTicket(p_tik);
 
 	printf("\t\t>> Installing ticket...");
 	fflush(stdout);
@@ -946,7 +964,7 @@ skipChecks:
 		goto err;
 
 	/* Get list of currently installed shared contents */
-	GetSharedContents(&sharedContents, &sharedContentsCount);
+	Sys_GetSharedContents(&sharedContents, &sharedContentsCount);
 	
 	/* Install contents */
 	for (cnt = 0; cnt < tmd_data->num_contents; cnt++) 
@@ -959,7 +977,7 @@ skipChecks:
 		/* Encrypted content size */
 		len = round_up(content->size, 64);
 
-		if (SharedContentPresent(content, sharedContents, sharedContentsCount))
+		if (Sys_SharedContentPresent(content, sharedContents, sharedContentsCount))
 		{
 			offset += len;
 			continue;
@@ -1258,6 +1276,8 @@ s32 Wad_Uninstall(FILE *fp)
 	}
 
 	Con_ClearLine();
+
+	/* Why don't we do this the other way around? Delete title contents, delete TMD, delete ticket. Seems more natural. */
 
 	printf("\t\t>> Deleting tickets...");
 	fflush(stdout);

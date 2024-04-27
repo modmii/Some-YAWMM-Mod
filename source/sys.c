@@ -1,8 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ogcsys.h>
+#include <ogc/es.h>
 
 #include "sys.h"
+#include "aes.h"
+#include "nand.h"
+#include "mini_seeprom.h"
 #include "malloc.h"
 #include "mload.h"
 #include "ehcmodule_elf.h"
@@ -37,6 +41,23 @@ bool tmdIsStubIOS(tmd* p_tmd)
 	&&	p_tmd->contents[0].type == 0x0001
 	&&	p_tmd->contents[1].type == 0x8001
 	&&	p_tmd->contents[2].type == 0x8001;
+}
+
+bool ES_CheckHasKoreanKey(void)
+{
+	aeskey korean_key;
+	unsigned char iv[16] = {};
+
+	__attribute__ ((__aligned__(0x10)))
+	unsigned char data[16] = {0x56, 0x52, 0x6f, 0x63, 0xa1, 0x2c, 0xd1, 0x32, 0x07, 0x99, 0x82, 0x3b, 0x1b, 0x08, 0x17, 0xd0};
+
+	if (seeprom_read(korean_key, offsetof(struct SEEPROM, korean_key), sizeof(korean_key)) != sizeof(korean_key))
+		return false;
+
+	AES_Decrypt(korean_key, 0x10, iv, 0x10, data, data, sizeof(data));
+
+	//	return (!strcmp((char*) data, "thepikachugamer")) Just remembered that this is how the Trucha bug came to be
+	return (!memcmp(data, "thepikachugamer", sizeof(data)));
 }
 
 bool isIOSstub(u8 ios_number)
@@ -212,6 +233,92 @@ s32 Sys_GetCerts(signed_blob **certs, u32 *len)
 	}
 
 	return ret;
+}
+
+s32 Sys_GetSharedContents(SharedContent** out, u32* count)
+{
+	if (!out || !count) return false;
+
+	int ret = 0;
+	u32 size;
+	SharedContent* buf = (SharedContent*)NANDLoadFile("/shared1/content.map", &size);
+
+	if (!buf)
+		return (s32)size;
+
+	else if (size % sizeof(SharedContent) != 0) {
+		free(buf);
+		return -996;
+	}
+
+	*out = buf;
+	*count = size / sizeof(SharedContent);
+
+	return 0;
+}
+
+bool Sys_SharedContentPresent(tmd_content* content, SharedContent shared[], u32 count)
+{
+	if (!shared || !content || !count)
+		return false;
+
+	if (!(content->type & 0x8000))
+		return false;
+
+	for (SharedContent* s_content = shared; s_content < shared + count; s_content++)
+	{
+		if (memcmp(s_content->hash, content->hash, sizeof(sha1)) == 0)
+			return true;
+	}
+
+	return false;
+}
+
+bool Sys_GetcIOSInfo(int IOS, cIOSInfo* out)
+{
+	int ret;
+	u64 titleID = 0x0000000100000000ULL | IOS;
+	ATTRIBUTE_ALIGN(0x20) char path[ISFS_MAXPATH];
+	u32 size;
+	cIOSInfo* buf = NULL;
+
+	u32 view_size = 0;
+	if (ES_GetTMDViewSize(titleID, &view_size) < 0)
+		return false;
+
+	tmd_view* view = memalign32(view_size);
+	if (!view)
+		return false;
+
+	if (ES_GetTMDView(titleID, (u8*)view, view_size) < 0)
+		goto fail;
+
+	tmd_view_content* content0 = NULL;
+
+	for (tmd_view_content* con = view->contents; con < view->contents + view->num_contents; con++)
+	{
+		if (con->index == 0)
+			content0 = con;
+	}
+
+	if (!content0)
+		goto fail;
+
+	sprintf(path, "/title/00000001/%08x/content/%08x.app", IOS, content0->cid);
+	buf = (cIOSInfo*)NANDLoadFile(path, &size);
+
+	if (!buf || size != 0x40 || buf->hdr_magic != CIOS_INFO_MAGIC || buf->hdr_version != CIOS_INFO_VERSION)
+		goto fail;
+
+	*out = *buf;
+	free(view);
+	free(buf);
+	return true;
+
+fail:
+	free(view);
+	free(buf);
+	return false;
 }
 
 void SetPRButtons(bool enabled)

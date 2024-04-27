@@ -8,6 +8,8 @@
 #include <wiidrc/wiidrc.h>
 
 #include "sys.h"
+#include "title.h"
+#include "aes.h"
 #include "gui.h"
 #include "menu.h"
 #include "restart.h"
@@ -182,6 +184,9 @@ int main(int argc, char **argv)
 	WiiDRC_Init();
 	WKB_Initialize();
 	WIILIGHT_Init();
+
+	AES_Init();
+	Title_SetupCommonKeys();
 
 	/* Print disclaimer */
 	//Disclaimer();

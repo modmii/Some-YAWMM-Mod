@@ -689,9 +689,9 @@ s32 Wad_Install(FILE *fp)
 
 	if (TITLE_UPPER(tmd_data->sys_version) == 0) // IOS
 	{
-		if (isvWiiTitle ^ IS_WIIU) // xor is one of my favourite binary operators of all time
+		if ((isvWiiTitle || tmd_data->vwii_title)  ^ IS_WIIU) // xor is one of my favourite binary operators of all time
 		{
-			printf("\n    Cannot install vWii IOS on Wii (and vice versa).\n");
+			printf("\n    Cannot install vWii IOS on Wii\n    or Wii IOS on vWii.\n");
 			ret = -999;
 			goto err;
 		}

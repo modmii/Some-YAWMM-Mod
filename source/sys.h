@@ -29,7 +29,7 @@ typedef struct
 } cIOSInfo;
 // _Static_assert(sizeof(cIOSInfo) == 0x40, "Incorrect cIOSInfo struct size, do i really need to pack this..?");
 
-#define IS_WIIU (*(vu16*)0xCD0005A0 == 0xCAFE)
+#define IS_WIIU (*(vu16*)0xCD8005A0 == 0xCAFE)
 
 extern u32 boot2version;
 

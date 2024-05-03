@@ -1173,6 +1173,7 @@ s32 Wad_Uninstall(FILE *fp)
 	wadHeader   *header   = NULL;
 	tikview     *viewData = NULL;
 	signed_blob *s_tik    = NULL;
+	signed_blob *s_tmd    = NULL;
 
 	u64 tid;
 	u32 viewCnt;
@@ -1197,12 +1198,12 @@ s32 Wad_Uninstall(FILE *fp)
 	}
 
 	/* Get ticket */
-	u32 tik_offset = 0;
-	tik_offset += round_up(header->header_len, 0x40);
-	tik_offset += round_up(header->certs_len,  0x40);
-	tik_offset += round_up(header->crl_len,    0x40);
+	u32 offset = 0;
+	offset += round_up(header->header_len, 0x40);
+	offset += round_up(header->certs_len,  0x40);
+	offset += round_up(header->crl_len,    0x40);
 
-	ret = FSOPReadOpenFileA(fp, (void*)&s_tik, tik_offset, header->tik_len);
+	ret = FSOPReadOpenFileA(fp, (void*)&s_tik, offset, header->tik_len);
 	if (ret != 1) {
 		printf(" ERROR! (ret = %d)\n", ret);
 		goto out;
@@ -1211,6 +1212,15 @@ s32 Wad_Uninstall(FILE *fp)
 	bool isvWiiTitle = __Wad_FixTicket(s_tik);
 	tik *ticket = SIGNATURE_PAYLOAD(s_tik);
 	tid = ticket->titleid;
+
+	offset += round_up(header->tik_len, 0x40);
+	ret = FSOPReadOpenFileA(fp, (void*)&s_tmd, offset, header->tmd_len);
+	if (ret != 1) {
+		printf(" ERROR! (ret = %d)\n", ret);
+		goto out;
+	}
+
+	tmd* tmd_data = SIGNATURE_PAYLOAD(s_tmd);
 
 	//Assorted Checks
 	if (TITLE_UPPER(tid) == 0x1)
@@ -1221,16 +1231,19 @@ s32 Wad_Uninstall(FILE *fp)
 			ret = -999;
 			goto out;
 		}
-		if (isvWiiTitle && !IS_WIIU && !skipRegionSafetyCheck) // Only this way around this time
+		if (((isvWiiTitle || tmd_data->vwii_title) ^ IS_WIIU) && !skipRegionSafetyCheck) // Only this way around this time // Ehh nvm
 		{
 			printf("\n"
-				"    Attempting to uninstall a vWii IOS WAD.\n\n"
+				"    Attempting to uninstall a Wii IOS WAD on vWii.\n"
+				"    or a vWii IOS WAD on Wii.\n\n"
+
+				"    Maybe you installed one on accident before?\n\n"
 
 				"    If you're sure about what you're doing, input\n"
 				"    the Konami code on the device screen. Have fun.\n");
 
-				ret = -990;
-				goto out;
+			ret = -999;
+			goto out;
 		}
 		if (tid == TITLE_ID(1, 1))
 		{

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <app version="1">
 	<name>YAWM ModMii Edition</name>
-	<version>1.0.1</version>
+	<version>1.0.2</version>
 	<coder>Various</coder>
 	<short_description>Manage WADs and Launch Apps</short_description>
 	<long_description>Yet Another Wad Manager ModMii Edition (yawmME)

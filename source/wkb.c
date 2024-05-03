@@ -73,6 +73,7 @@ static void WKBEventHandler(USBKeyboard_event evt)
         case WKB_KEY_PLUS:      button = WPAD_BUTTON_PLUS; break;
         case WKB_KEY_MINUS:     button = WPAD_BUTTON_MINUS; break;
         case WKB_KEY_1:         button = WPAD_BUTTON_1; break;
+        case WKB_KEY_2:         button = WPAD_BUTTON_2; break;
 
         default: return;
     }

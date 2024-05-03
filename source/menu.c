@@ -1077,7 +1077,7 @@ getList:
 			selected +=  ENTRIES_PER_PAGE;
 
 			if (selected >= fileCnt)
-				selected = 0;
+				selected = fileCnt - 1;
 		}
 		else if (buttons & WPAD_BUTTON_DOWN) 
 		{
@@ -1089,7 +1089,7 @@ getList:
 				selected -=  ENTRIES_PER_PAGE;
 
 			if (selected < 0)
-				selected = (fileCnt - 1);
+				selected = 0;
 		}
 		else if (buttons & WPAD_BUTTON_HOME)
 		{

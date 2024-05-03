@@ -778,7 +778,11 @@ s32 Wad_Install(FILE *fp)
 				goto err;
 			}
 		}
-		if (tid == get_title_ios(TITLE_ID(0x10001, 0x48415858)) || tid == get_title_ios(TITLE_ID(0x10001, 0x4A4F4449)))
+		if(tid == get_title_ios(TITLE_ID(0x10001, 0x48415858))
+		|| tid == get_title_ios(TITLE_ID(0x10001, 0x4A4F4449))
+		|| tid == get_title_ios(TITLE_ID(0x10001, 0xAF1BF516))
+		|| tid == get_title_ios(TITLE_ID(0x10001, 0x4C554C5A))
+		|| tid == get_title_ios(TITLE_ID(0x10001, 0x4F484243)))
 		{
 			if (tmdIsStubIOS(tmd_data))
 			{
@@ -837,7 +841,7 @@ s32 Wad_Install(FILE *fp)
 
 			if (!VersionIsOriginal(tmd_data->title_version))
 			{
-				printf("\n    I won't install an unkown SM versions by default.\n\n");
+				printf("\n    I won't install an unknown SM versions by default.\n\n");
 				printf("\n    Are you installing a tweaked system menu?\n");
 				printf("\n    If you're really sure what you're doing, next time\n");
 				printf("    select your device using Konami...\n\n");
@@ -1200,45 +1204,52 @@ s32 Wad_Uninstall(FILE *fp)
 		goto out;
 	}
 	//Assorted Checks
-	if (TITLE_UPPER(tid) == 1 && get_title_ios(TITLE_ID(1, 2)) == 0)
+	if (TITLE_UPPER(tid) = 0x1)
 	{
-		printf("\n    I can't determine the System Menus IOS\nDeleting system titles is disabled\n");
-		ret = -999;
-		goto out;
-	}
-	if (tid == TITLE_ID(1, 1))
-	{
-		printf("\n    I won't try to uninstall boot2\n");
-		ret = -999;
-		goto out;
-	}
-	if (tid == TITLE_ID(1, 2))
-	{
-		printf("\n    I won't uninstall the System Menu\n");
-		ret = -999;
-		goto out;
-	}
-	if(get_title_ios(TITLE_ID(1, 2)) == tid)
-	{
-		printf("\n    I won't uninstall the System Menus IOS\n");
-		ret = -999;
-		goto out;
-	}
-	if (tid == get_title_ios(TITLE_ID(0x10001, 0x48415858)) || tid == get_title_ios(TITLE_ID(0x10001, 0x4A4F4449)))
-	{
-		printf("\n    This is the HBCs IOS, uninstalling will break the HBC!\n");
-		printf("\n    Press A to continue.\n");
-		printf("    Press B skip.");
-		
-		u32 buttons = WaitButtons();
-		
-		if (!(buttons & WPAD_BUTTON_A))
+		if (!get_title_ios(TITLE_ID(1, 2)))
 		{
-			ret = -998;
+			printf("\n    I can't determine the System Menus IOS\nDeleting system titles is disabled\n");
+			ret = -999;
 			goto out;
 		}
+		if (tid == TITLE_ID(1, 1))
+		{
+			printf("\n    I won't try to uninstall boot2\n");
+			ret = -999;
+			goto out;
+		}
+		if (tid == TITLE_ID(1, 2))
+		{
+			printf("\n    I won't uninstall the System Menu\n");
+			ret = -999;
+			goto out;
+		}
+		if (tid == get_title_ios(TITLE_ID(1, 2)))
+		{
+			printf("\n    I won't uninstall the System Menus IOS\n");
+			ret = -999;
+			goto out;
+		}
+		if (tid == get_title_ios(TITLE_ID(0x10001, 0x48415858))
+		||  tid == get_title_ios(TITLE_ID(0x10001, 0x4A4F4449))
+		||  tid == get_title_ios(TITLE_ID(0x10001, 0xAF1BF516))
+		||  tid == get_title_ios(TITLE_ID(0x10001, 0x4C554C5A))
+		||  tid == get_title_ios(TITLE_ID(0x10001, 0x4F484243)))
+		{
+			printf("\n    This is the HBCs IOS, uninstalling will break the HBC!!\n");
+			printf("\n    Press A to continue.");
+			printf("\n    Press B skip.");
+
+			u32 buttons = WaitButtons();
+
+			if (!(buttons & WPAD_BUTTON_A))
+			{
+				ret = -998;
+				goto out;
+			}
+		}
 	}
-	
+
 	char region = 0;
 	GetSysMenuRegion(NULL, &region);
 	

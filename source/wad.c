@@ -787,8 +787,8 @@ s32 Wad_Install(FILE *fp)
 			if (tmdIsStubIOS(tmd_data))
 			{
 				printf("\n    Are you sure you wan't to install a stub HBC IOS?\n");
-				printf("\n    Press A to continue.\n");
-				printf("    Press B skip.");
+				printf("\n    Press A to continue.");
+				printf("\n    Press B skip.");
 			
 				u32 buttons = WaitButtons();
 			
@@ -808,8 +808,6 @@ s32 Wad_Install(FILE *fp)
 			ret = -1036;
 			goto err;
 		}
-		
-		
 		
 		if (tid == TITLE_ID(1, 2))
 		{
@@ -1172,8 +1170,9 @@ out:
 s32 Wad_Uninstall(FILE *fp)
 {
 	SetPRButtons(false);
-	wadHeader *header   = NULL;
-	tikview   *viewData = NULL;
+	wadHeader   *header   = NULL;
+	tikview     *viewData = NULL;
+	signed_blob *s_tik    = NULL;
 
 	u64 tid;
 	u32 viewCnt;
@@ -1192,25 +1191,46 @@ s32 Wad_Uninstall(FILE *fp)
 
 	if (!__Wad_VerifyHeader(header))
 	{
-		puts("Invalid WAD file?");
+		puts("\t\tInvalid WAD file?");
 		ret = ES_EINVAL;
 		goto out;
 	}
 
-	/* Get title ID */
-	ret =  __Wad_GetTitleID(fp, header, &tid);
-	if (ret < 0) {
+	/* Get ticket */
+	u32 tik_offset = 0;
+	tik_offset += round_up(header->header_len, 0x40);
+	tik_offset += round_up(header->certs_len,  0x40);
+	tik_offset += round_up(header->crl_len,    0x40);
+
+	ret = FSOPReadOpenFileA(fp, (void*)&s_tik, tik_offset, header->tik_len);
+	if (ret != 1) {
 		printf(" ERROR! (ret = %d)\n", ret);
 		goto out;
 	}
+
+	bool isvWiiTitle = __Wad_FixTicket(s_tik);
+	tik *ticket = SIGNATURE_PAYLOAD(s_tik);
+	tid = ticket->titleid;
+
 	//Assorted Checks
-	if (TITLE_UPPER(tid) = 0x1)
+	if (TITLE_UPPER(tid) == 0x1)
 	{
 		if (!get_title_ios(TITLE_ID(1, 2)))
 		{
 			printf("\n    I can't determine the System Menus IOS\nDeleting system titles is disabled\n");
 			ret = -999;
 			goto out;
+		}
+		if (isvWiiTitle && !IS_WIIU && !skipRegionSafetyCheck) // Only this way around this time
+		{
+			printf("\n"
+				"    Attempting to uninstall a vWii IOS WAD.\n\n"
+
+				"    If you're sure about what you're doing, input\n"
+				"    the Konami code on the device screen. Have fun.\n");
+
+				ret = -990;
+				goto out;
 		}
 		if (tid == TITLE_ID(1, 1))
 		{

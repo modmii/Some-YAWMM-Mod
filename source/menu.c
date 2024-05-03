@@ -1074,10 +1074,15 @@ getList:
 		}
 		else if (buttons & WPAD_BUTTON_RIGHT)
 		{
-			selected +=  ENTRIES_PER_PAGE;
-
-			if (selected >= fileCnt)
+			if (fileCnt - start > ENTRIES_PER_PAGE) {
+				start += ENTRIES_PER_PAGE;
+				selected += ENTRIES_PER_PAGE;
+				if (selected >= fileCnt)
+					selected = fileCnt - 1;
+			}
+			else {
 				selected = fileCnt - 1;
+			}
 		}
 		else if (buttons & WPAD_BUTTON_DOWN) 
 		{
@@ -1086,10 +1091,15 @@ getList:
 		}
 		else if (buttons & WPAD_BUTTON_LEFT)
 		{
-				selected -=  ENTRIES_PER_PAGE;
-
-			if (selected < 0)
-				selected = 0;
+			if (start >= ENTRIES_PER_PAGE) {
+				start -= ENTRIES_PER_PAGE;
+				selected -= ENTRIES_PER_PAGE;
+				if (selected < 0)
+					selected = 0;
+			}
+			else {
+				selected = start = 0;
+			}
 		}
 		else if (buttons & WPAD_BUTTON_HOME)
 		{

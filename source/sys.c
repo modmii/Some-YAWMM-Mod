@@ -239,7 +239,6 @@ s32 Sys_GetSharedContents(SharedContent** out, u32* count)
 {
 	if (!out || !count) return false;
 
-	int ret = 0;
 	u32 size;
 	SharedContent* buf = (SharedContent*)NANDLoadFile("/shared1/content.map", &size);
 
@@ -276,7 +275,6 @@ bool Sys_SharedContentPresent(tmd_content* content, SharedContent shared[], u32 
 
 bool Sys_GetcIOSInfo(int IOS, cIOSInfo* out)
 {
-	int ret;
 	u64 titleID = 0x0000000100000000ULL | IOS;
 	ATTRIBUTE_ALIGN(0x20) char path[ISFS_MAXPATH];
 	u32 size;

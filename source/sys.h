@@ -41,7 +41,6 @@ bool ES_CheckHasKoreanKey(void);
 void Sys_Init(void);
 void Sys_Reboot(void);
 void Sys_Shutdown(void);
-void Sys_LoadMenu(void);
 s32  Sys_GetCerts(signed_blob **, u32 *);
 bool Sys_GetcIOSInfo(int IOS, cIOSInfo*);
 s32  Sys_GetSharedContents(SharedContent** out, u32* count);

@@ -158,6 +158,13 @@ void Sys_Reboot(void)
 void Sys_Shutdown(void)
 {
 	/* Poweroff console */
+#if 0
+	/*
+	STM_SetLedMode is causing a crash, and I don't even like the concept of shutting down to WiiConnect24 standby anyways,
+	so let's just remove this overall
+
+	- thepikachugamer
+	*/
 	if (CONF_GetShutdownMode() == CONF_SHUTDOWN_IDLE)
 	{
 		s32 ret;
@@ -170,42 +177,11 @@ void Sys_Shutdown(void)
 		/* Shutdown to idle */
 		STM_ShutdownToIdle();
 	}
-	else
-	{
-		/* Shutdown to standby */
-		STM_ShutdownToStandby();
-	}
-}
-
-void Sys_LoadMenu(void)
-{
-	/* SYSCALL(exit) does all of this already */
-	exit(0);
-
-	/* Also the code gcc generated for this looks really painful */
-#if 0
-	int HBC = 0;
-	char *sig = (char *)0x80001804;
-	if (sig[0] == 'S' &&
-		sig[1] == 'T' &&
-		sig[2] == 'U' &&
-		sig[3] == 'B' &&
-		sig[4] == 'H' &&
-		sig[5] == 'A' &&
-		sig[6] == 'X' &&
-		sig[7] == 'X')
-	{
-		HBC = 1; // Exit to HBC
-	}
-
-	/* Homebrew Channel stub */
-	if (HBC == 1)
-	{
-		exit(0);
-	}
-	/* Return to the Wii system menu */
-	SYS_ResetSystem(SYS_RETURNTOMENU, 0, 0);
 #endif
+
+	/* Shutdown to standby */
+	STM_ShutdownToStandby();
+
 }
 
 s32 Sys_GetCerts(signed_blob **certs, u32 *len)
@@ -239,7 +215,6 @@ s32 Sys_GetSharedContents(SharedContent** out, u32* count)
 {
 	if (!out || !count) return false;
 
-	int ret = 0;
 	u32 size;
 	SharedContent* buf = (SharedContent*)NANDLoadFile("/shared1/content.map", &size);
 
@@ -276,7 +251,6 @@ bool Sys_SharedContentPresent(tmd_content* content, SharedContent shared[], u32 
 
 bool Sys_GetcIOSInfo(int IOS, cIOSInfo* out)
 {
-	int ret;
 	u64 titleID = 0x0000000100000000ULL | IOS;
 	ATTRIBUTE_ALIGN(0x20) char path[ISFS_MAXPATH];
 	u32 size;

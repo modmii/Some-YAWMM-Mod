@@ -31,7 +31,7 @@ extern void __exception_setreload(int t);
 extern u32 WaitButtons (void);
 void CheckPassword (void);
 void SetDefaultConfig (void);
-int ReadConfigFile (char *configFilePath);
+int ReadConfigFile (void);
 int GetIntParam (char *inputStr);
 int GetStartupPath (char *startupPath, char *inputStr);
 int GetStringParam (char *outParam, char *inputStr, int maxChars);
@@ -51,7 +51,7 @@ void CheckPassword (void)
 	printf("[+] [Enter Password to Continue]:\n\n");
 
 	printf(">>  Press A to continue.\n");
-	printf(">>  Press B button to restart your Wii.\n");
+	printf(">>  Press B button to cancel.\n");
 
 	/* Wait for user answer */
 	for (;;) 
@@ -74,7 +74,7 @@ void CheckPassword (void)
 				printf(">>  Incorrect Password. Try again...\n");
 				printf("[+] [Enter Password to Continue]:\n\n");
 				printf(">>  Press A to continue.\n");
-				printf(">>  Press B button to restart your Wii.\n");
+				printf(">>  Press B button to cancel.\n");
 				count = 0;
 			}
 		}
@@ -132,7 +132,7 @@ void Disclaimer(void)
 	printf("    WII CONSOLE BECAUSE OF A IMPROPER USAGE OF THIS SOFTWARE.\n\n");
 
 	printf(">>  If you agree, press A button to continue.\n");
-	printf(">>  Otherwise, press B button to restart your Wii.\n");
+	printf(">>  Otherwise, press B button to exit.\n");
 
 	/* Wait for user answer */
 	for (;;) {
@@ -154,13 +154,18 @@ int main(int argc, char **argv)
 	__exception_setreload(10);
 
 	ES_GetBoot2Version(&boot2version);
-	if(!AHBPROT_DISABLED)
+	if (!AHBPROT_DISABLED)
+/*
+	We should just enable it tbh.
+	Like, look at https://github.com/WiiLink24/wfc-patcher-wii/blob/main/launcher/source/IOS.cpp
+	Awesome stuff.
+ */
 	{
-		if(boot2version < 5) 
+		if (boot2version < 5)
 		{
-			if(!loadIOS(202)) if(!loadIOS(222)) if(!loadIOS(223)) if(!loadIOS(224)) if(!loadIOS(249)) loadIOS(36);
-		}else{
-			if(!loadIOS(249)) loadIOS(36);
+			if (!loadIOS(202)) if (!loadIOS(222)) if (!loadIOS(223)) if (!loadIOS(224)) if (!loadIOS(249)) loadIOS(36);
+		} else {
+			if (!loadIOS(249)) loadIOS(36);
 		}
 	}
 
@@ -195,7 +200,7 @@ int main(int argc, char **argv)
 	SetDefaultConfig ();
 
 	// Read the config file
-	ReadConfigFile(WM_CONFIG_FILE_PATH);
+	ReadConfigFile();
 
 	// Check password
 	CheckPassword();
@@ -211,22 +216,17 @@ int main(int argc, char **argv)
 	return 0;
 }
 
-
-int ReadConfigFile(char* configFilePath)
+int ReadConfigFile()
 {
-	int retval = 0;
 	FILE* fptr;
-	char* tmpStr = malloc(MAX_FILE_PATH_LEN);
+	char tmpStr[MAX_FILE_PATH_LEN];
 	char tmpOutStr[40], path[128];
 	s32 i;
 	bool found = false;
 
-	if (tmpStr == NULL)
-		return (-1);
-
 	for (i = 0; i < FatGetDeviceCount(); i++)
 	{	
-		snprintf(path, sizeof(path), "%s%s", FatGetDevicePrefix(i), configFilePath);
+		snprintf(path, sizeof(path), "%s:%s", FatGetDevicePrefix(i), WM_CONFIG_FILE_PATH);
 		if (FSOPFileExists(path))
 		{
 			found = true;
@@ -235,100 +235,88 @@ int ReadConfigFile(char* configFilePath)
 	}
 	
 	if (!found)
-	{
-		retval = -1;
-	}
-	else
-	{
-		// Read the file
-		fptr = fopen (path, "rb");
-		if (fptr != NULL)
-		{	
-			// Read the options
-			char done = 0;
+		return -1;
 
-			while (!done)
+	// Read the file
+	// fptr = fopen(path, "rb"); // umm, why are we opening with mode rb and then using fgets?
+	fptr = fopen(path, "r");
+	if (!fptr) {
+		// perror(path);
+		return -1;
+	}
+
+	// Read the options
+	while (true)
+	{
+		if (!fgets(tmpStr, MAX_FILE_PATH_LEN, fptr))
+			break;
+
+		else if (isalpha((int)tmpStr[0]))
+		{
+			// Get the password
+			if (strncmp (tmpStr, "Password", 8) == 0)
 			{
-				if (fgets (tmpStr, MAX_FILE_PATH_LEN, fptr) == NULL)
-					done = 1;
-				else if (isalpha((int)tmpStr[0]))
+				// Get password
+				// GetPassword (gConfig.password, tmpStr);
+				GetStringParam (gConfig.password, tmpStr, MAX_PASSWORD_LENGTH);
+
+				// If password is too long, ignore it
+				if (strlen (gConfig.password) > 10)
 				{
-					// Get the password
-					if (strncmp (tmpStr, "Password", 8) == 0)
-					{
-						// Get password
-						// GetPassword (gConfig.password, tmpStr);
-						GetStringParam (gConfig.password, tmpStr, MAX_PASSWORD_LENGTH);
-						
-						// If password is too long, ignore it
-						if (strlen (gConfig.password) > 10)
-						{
-							gConfig.password [0] = 0;
-							printf ("Password longer than 10 characters; will be ignored. Press a button...\n");
-							WaitButtons ();
-						}
-					}
+					gConfig.password [0] = 0;
+					puts("Password longer than 10 characters; will be ignored. Press a button...");
+					WaitButtons ();
+				}
+			}
 				
-					// Get startup path
-					else if (strncmp (tmpStr, "StartupPath", 11) == 0)
+			// Get startup path
+			else if (strncmp (tmpStr, "StartupPath", 11) == 0)
+			{
+				// Get startup Path
+				GetStartupPath (gConfig.startupPath, tmpStr);
+			}
+
+			// cIOS
+			else if (strncmp (tmpStr, "cIOSVersion", 11) == 0)
+			{
+				// Get cIOSVersion
+				gConfig.cIOSVersion = GetIntParam(tmpStr);
+			}
+
+			// FatDevice
+			else if (strncmp (tmpStr, "FatDevice", 9) == 0)
+			{
+				// Get fatDevice
+				GetStringParam (tmpOutStr, tmpStr, MAX_FAT_DEVICE_LENGTH);
+				for (i = 0; i < 5; i++)
+				{
+					if (strncmp(FatGetDevicePrefix(i), tmpOutStr, 4) == 0)
 					{
-						// Get startup Path
-						GetStartupPath (gConfig.startupPath, tmpStr);
-					}
-					
-					// cIOS
-					else if (strncmp (tmpStr, "cIOSVersion", 11) == 0)
-					{
-						// Get cIOSVersion
-						gConfig.cIOSVersion = (u8)GetIntParam (tmpStr);
-					}
-					
-					// FatDevice
-					else if (strncmp (tmpStr, "FatDevice", 9) == 0)
-					{
-						// Get fatDevice
-						GetStringParam (tmpOutStr, tmpStr, MAX_FAT_DEVICE_LENGTH);
-						for (i = 0; i < 5; i++)
-						{
-							if (strncmp(FatGetDevicePrefix(i), tmpOutStr, 4) == 0)
-							{
-								gConfig.fatDeviceIndex = i;
-							}
-						}
-					}
-					
-					// NandDevice
-					else if (strncmp (tmpStr, "NANDDevice", 10) == 0)
-					{
-						// Get fatDevice
-						GetStringParam (tmpOutStr, tmpStr, MAX_NAND_DEVICE_LENGTH);
-						for (i = 0; i < 3; i++)
-						{
-							if (strncmp (ndevList[i].name, tmpOutStr, 2) == 0)
-							{
-								gConfig.nandDeviceIndex = i;
-							}
-						}
+						gConfig.fatDeviceIndex = i;
 					}
 				}
-			} // EndWhile
+			}
+					
+			// NandDevice
+			else if (strncmp (tmpStr, "NANDDevice", 10) == 0)
+			{
+				// Get fatDevice
+				GetStringParam (tmpOutStr, tmpStr, MAX_NAND_DEVICE_LENGTH);
+				for (i = 0; i < 3; i++)
+				{
+					if (strncmp (ndevList[i].name, tmpOutStr, 2) == 0)
+					{
+						gConfig.nandDeviceIndex = i;
+					}
+				}
+			}
+		}
+	} // EndWhile
 			
-			// Close the config file
-			fclose (fptr);
-		}
-		else
-		{
-			// If the wm_config.txt file is not found, just take the default config params
-			//printf ("Config file is not found\n");  // This is for testing only
-			//WaitButtons();
-		}
-		//Fat_Unmount(fdev);
-	}
+	// Close the config file
+	fclose (fptr);
 
-	// Free memory
-	free(tmpStr);
-
-	return (retval);
+	return 0;
 } // ReadConfig
 
 

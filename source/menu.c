@@ -7,6 +7,7 @@
 #include <wiilight.h>
 #include <wiidrc/wiidrc.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "sys.h"
 #include "fat.h"
@@ -34,13 +35,7 @@ nandDevice ndevList[] =
 
 static nandDevice *ndev = NULL;
 
-// wiiNinja: Define a buffer holding the previous path names as user
-// traverses the directory tree. Max of 10 levels is define at this point
-static u8 gDirLevel = 0;
-static char gDirList [MAX_DIR_LEVELS][MAX_FILE_PATH_LEN];
-static s32  gSeleted[MAX_DIR_LEVELS];
-static s32  gStart[MAX_DIR_LEVELS];
-static u8 gSelected = 0;
+static int gSelected;
 
 static bool gNeedPriiloaderOption = false;
 
@@ -49,15 +44,13 @@ static bool gNeedPriiloaderOption = false;
 
 // Local prototypes: wiiNinja
 void WaitPrompt (char *prompt);
-int PushCurrentDir(char *dirStr, int Selected, int Start);
-char *PopCurrentDir(int *Selected, int *Start);
-bool IsListFull (void);
-char *PeekCurrentDir (void);
 u32 WaitButtons(void);
 u32 Pad_GetButtons(void);
 void WiiLightControl (int state);
 
-int __Menu_IsGreater(const void *p1, const void *p2)
+void PriiloaderRetainedPrompt(void);
+
+static int __Menu_IsGreater(const void *p1, const void *p2)
 {
 	u32 n1 = *(u32 *)p1;
 	u32 n2 = *(u32 *)p2;
@@ -69,7 +62,7 @@ int __Menu_IsGreater(const void *p1, const void *p2)
 	return (n1 > n2) ? 1 : -1;
 }
 
-int __Menu_EntryCmp(const void *p1, const void *p2)
+static int __Menu_EntryCmp(const void *p1, const void *p2)
 {
 	fatFile *f1 = (fatFile *)p1;
 	fatFile *f2 = (fatFile *)p2;
@@ -83,109 +76,104 @@ int __Menu_EntryCmp(const void *p1, const void *p2)
         return strcasecmp(f1->filename, f2->filename);
 }
 
-char gFileName[MAX_FILE_PATH_LEN];
-s32 __Menu_RetrieveList(char *inPath, fatFile **outbuf, u32 *outlen)
+static s32 __Menu_RetrieveList(char *inPath, fatFile **outbuf, u32 *outlen)
 {
 	fatFile     *buffer = NULL;
 	DIR            *dir = NULL;
 	struct dirent  *ent = NULL;
+	u32             cnt = 0;
 
-	//char dirpath[256], filename[768];
-	u32  cnt;
+	char tmpPath[MAX_FILE_PATH_LEN];
 
-	/* Generate dirpath */
-	//sprintf(dirpath, "%s:" WAD_DIRECTORY, fdev->mount);
+	/* Clear output values */
+	*outbuf = NULL;
+	*outlen = 0;
 
 	/* Open directory */
 	dir = opendir(inPath);
 	if (!dir)
 		return -1;
 
-	/* Count entries */
-	for (cnt = 0; ((ent = readdir(dir)) != NULL);) {
-		cnt++;
-	}
-
-	if (cnt > 0) 
+	/* Get entries */
+	while ((ent = readdir(dir)) != NULL)
 	{
-		/* Allocate memory */
-		buffer = malloc(sizeof(fatFile) * cnt);
-		if (!buffer) 
+		bool addFlag = false;
+		bool isdir = false;
+		bool isdol = false;
+		bool iself = false;
+		bool iswad = false;
+		size_t fsize = 0;
+
+		/* Hide entries that start with "._". I hate macOS */
+		if (!strncmp(ent->d_name, "._", 2))
+			continue;
+
+		snprintf(tmpPath, MAX_FILE_PATH_LEN, "%s/%s", inPath, ent->d_name);
+		if (FSOPFolderExists(tmpPath))  // wiiNinja
 		{
-			closedir(dir);
-			return -2;
+			isdir = true;
+			// Add only the item ".." which is the previous directory
+			// AND if we're not at the root directory
+			if ((strcmp (ent->d_name, "..") == 0) && (strchr(inPath, '/') == strrchr(inPath, '/')))
+				addFlag = true;
+			else if (strcmp (ent->d_name, ".") != 0)
+				addFlag = true;
 		}
-
-		memset(buffer, 0, sizeof(fatFile) * cnt);
-
-		/* Reset directory */
-		rewinddir(dir);
-
-		/* Get entries */
-		for (cnt = 0; ((ent = readdir(dir)) != NULL);)
+		else
 		{
-			bool addFlag = false;
-			bool isdir = false;
-			bool isdol = false;
-			bool iself = false;
-			bool iswad = false;
-			size_t fsize = 0;
-
-			snprintf(gFileName, MAX_FILE_PATH_LEN, "%s/%s", inPath, ent->d_name);
-			if (FSOPFolderExists(gFileName))  // wiiNinja
-            {
-				isdir = true;
-                // Add only the item ".." which is the previous directory
-                // AND if we're not at the root directory
-                if ((strcmp (ent->d_name, "..") == 0) && (gDirLevel > 1))
-                    addFlag = true;
-                else if (strcmp (ent->d_name, ".") != 0)
-                    addFlag = true;
-            }
-            else
+			if (strrchr(ent->d_name, '.'))
 			{
-				if(strlen(ent->d_name)>4)
+				if (!strcasecmp(strrchr(ent->d_name, '.'), ".wad"))
 				{
-					if(!strcasecmp(ent->d_name+strlen(ent->d_name)-4, ".wad"))
-					{
-						fsize = FSOPGetFileSizeBytes(gFileName);
-						addFlag = true;
-						iswad = true;
-					}
-					if(!strcasecmp(ent->d_name+strlen(ent->d_name)-4, ".dol"))
-					{
-						fsize = FSOPGetFileSizeBytes(gFileName);
-						addFlag = true;
-						isdol = true;
-					}
-					if(!strcasecmp(ent->d_name+strlen(ent->d_name)-4, ".elf"))
-					{
-						fsize = FSOPGetFileSizeBytes(gFileName);
-						addFlag = true;
-						iself = true;
-					}
+					fsize = FSOPGetFileSizeBytes(tmpPath);
+					addFlag = true;
+					iswad = true;
+				}
+				if (!strcasecmp(strrchr(ent->d_name, '.'), ".dol"))
+				{
+					fsize = FSOPGetFileSizeBytes(tmpPath);
+					addFlag = true;
+					isdol = true;
+				}
+				if (!strcasecmp(strrchr(ent->d_name, '.'), ".elf"))
+				{
+					fsize = FSOPGetFileSizeBytes(tmpPath);
+					addFlag = true;
+					iself = true;
 				}
 			}
-
-            if (addFlag == true)
-            {
-				fatFile *file = &buffer[cnt++];
-
-				/* File name */
-				strcpy(file->filename, ent->d_name);
-
-				/* File stats */
-				file->isdir = isdir;
-				file->fsize = fsize;
-				file->isdol = isdol;
-				file->iself = iself;
-				file->iswad = iswad;
-			}
 		}
 
-		/* Sort list */
-		qsort(buffer, cnt, sizeof(fatFile), __Menu_EntryCmp);
+		if (addFlag)
+		{
+			buffer = reallocarray(*outbuf, cnt + 1, sizeof(fatFile));
+			if (!buffer) // Reallocation failed. Why?
+			{
+				free(*outbuf);
+				*outbuf = NULL;
+				return -997;
+			}
+			*outbuf = buffer;
+
+			fatFile *file = &buffer[cnt++];
+
+			// Clear fatFile structure
+			memset(file, 0, sizeof(fatFile));
+
+			/* File name */
+			strcpy(file->filename, ent->d_name);
+
+			/* File stats */
+			file->isdir = isdir;
+			file->fsize = fsize;
+			file->isdol = isdol;
+			file->iself = iself;
+			file->iswad = iswad;
+		}
 	}
+
+	/* Sort list */
+	qsort(buffer, cnt, sizeof(fatFile), __Menu_EntryCmp);
 
 	/* Close directory */
 	closedir(dir);
@@ -196,7 +184,6 @@ s32 __Menu_RetrieveList(char *inPath, fatFile **outbuf, u32 *outlen)
 
 	return 0;
 }
-
 
 void Menu_SelectIOS(void)
 {
@@ -260,7 +247,7 @@ void Menu_SelectIOS(void)
 			printf("\t   Press LEFT/RIGHT to change IOS version.\n\n");
 
 			printf("\t   Press A button to continue.\n");
-			printf("\t   Press HOME button to restart.\n\n");
+			printf("\t   Press HOME button to exit.\n\n");
 
 			u32 buttons = WaitButtons();
 
@@ -311,7 +298,7 @@ void Menu_FatDevice(void)
 	if (gSelected >= FatGetDeviceCount())
 		gSelected = 0;
 
-	const u16 konamiCode[] = 
+	static const u16 konamiCode[] =
 	{
 		WPAD_BUTTON_UP, WPAD_BUTTON_UP, WPAD_BUTTON_DOWN, WPAD_BUTTON_DOWN, WPAD_BUTTON_LEFT,
 		WPAD_BUTTON_RIGHT, WPAD_BUTTON_LEFT, WPAD_BUTTON_RIGHT, WPAD_BUTTON_B, WPAD_BUTTON_A
@@ -323,9 +310,13 @@ void Menu_FatDevice(void)
 	char region = '\0';
 	u16 version = 0;
 	
+	u32 iosVersion  = IOS_GetVersion();
+	u16 iosRevision = IOS_GetRevision();
+//	u8  iosRevMajor = (iosRevision >> 8) & 0xFF;
+//	u8  iosRevMinor = iosRevision & 0xFF;
+
 	GetSysMenuRegion(&version, &region);
 	bool havePriiloader = IsPriiloaderInstalled();
-	u32 ios = *((u32*)0x80003140);
 
 	/* Select source device */
 	if (gConfig.fatDeviceIndex < 0)
@@ -336,35 +327,51 @@ void Menu_FatDevice(void)
 			Con_Clear();
 			bool deviceOk = (FatGetDeviceCount() > 0);
 
+			/*
+			 * 0xc9 - top left corner
+			 * 0xc8 - bottom left corner
+			 * 0xbb - top right corner
+			 * 0xbc - bottom right corner
+			 * 0xcd - horizontal
+			 * 0xb9 - vertical conjuction to left
+			 * 0xcc - vertical conjuction to right
+			 */
+
+			char horizontal[60];
+			memset(horizontal, 0xcd, sizeof(horizontal));
+
+			printf(" \xc9%.59s\xbb", horizontal);
+			printf(" \xcc%.14sWelcome to YAWM ModMii Edition!%.14s\xb9", horizontal, horizontal);
+			printf(" \xc8%.59s\xbc", horizontal);
+
+			printf("	Running on IOS%u v%u (AHB access %s)\n\n", iosVersion, iosRevision, AHBPROT_DISABLED ? "enabled" : "disabled");
+
 			if (VersionIsOriginal(version))
-				printf("\tIOS %d v%d, System menu: %s%c %s\n\n", ((ios >> 16) & 0xFF), (ios & 0xFFFF), GetSysMenuVersionString(version), region, GetSysMenuRegionString(region));
+				printf("	System menu: %s%c %s\n", GetSysMenuVersionString(version), region ?: '?', GetSysMenuRegionString(region)); // The ? should not appear any more, but, in any case.
 			else
-				printf("\tIOS %d v%d, System menu: Unknown %s\n\n", ((ios >> 16) & 0xFF), (ios & 0xFFFF), GetSysMenuRegionString(region));
-			
-			
-			printf("\tAHB access: %s\n", AHBPROT_DISABLED ? "Yes" : "No");
-			printf("\tPriiloader: %s\n\n", havePriiloader ? "Installed" : "Not installed");
+				printf("	System menu: Unknown (v%u) %s\n", version, GetSysMenuRegionString(region));
+
+			printf("	 Priiloader: %s\n\n", havePriiloader ? "Installed" : "Not installed");
 
 			if (!deviceOk)
 			{
-				printf("\t[+] No source devices found\n\n");
+				printf("	[+] No source devices found\n\n");
 			}
 			else
 			{
-				printf("\t>> Select source device: < %s >\n\n", FatGetDeviceName(gSelected));
-				printf("\t   Press LEFT/RIGHT to change the selected device.\n\n");
-				printf("\t   Press A button to continue.\n");
+				printf("	>> Select source device: < %s >\n\n", FatGetDeviceName(gSelected));
+				printf("	   Press LEFT/RIGHT to change the selected device.\n");
+				printf("	   Press A button to continue.\n\n");
 			}
-			/* Selected device */
-			//printf("\tWii menu version: %d, region: %s\n\n", gMenuVersion, GetSysMenuRegionString(&gMenuRegion));
-			
-			printf("\t   Press 1 button to remount source devices.\n");			
-			printf("\t   Press HOME button to restart.\n\n");
+
+			printf("	   Press 1 button to remount source devices.\n");
+			printf("	   Press HOME button to exit.\n\n");
 
 			if (skipRegionSafetyCheck)
 			{
-				printf("[+] WARNING: SM region and version checks disabled!\n\n");
-				printf("\t   Press 2 button to reset.\n");
+			//	printf("[+] WARNING: SM region and version checks disabled!\n"); // not for SM exclusively anymore
+			//	printf("	Press 2 button to reset.\n");
+				puts("	[+] WARNING: Safety checks disabled!!! Press 2 to reset.");
 			}
 				
 
@@ -418,7 +425,7 @@ void Menu_FatDevice(void)
 				if (codePosition == sizeof(konamiCode) / sizeof(konamiCode[0])) 
 				{
 					skipRegionSafetyCheck = true;
-					printf("[+] Disabled SM region and version checks\n");
+					puts("[+] Disabled safety checks. Be careful out there!");
 					sleep(3);
 				}
 
@@ -462,7 +469,7 @@ void Menu_NandDevice(void)
 			printf("\t   Press LEFT/RIGHT to change the selected device.\n\n");
 
 			printf("\t   Press A button to continue.\n");
-			printf("\t   Press HOME button to restart.\n\n");
+			printf("\t   Press HOME button to exit.\n\n");
 
 			u32 buttons = WaitButtons();
 
@@ -526,9 +533,19 @@ err:
 
 char gTmpFilePath[MAX_FILE_PATH_LEN];
 /* Install and/or Uninstall multiple WADs - Leathl */
-int Menu_BatchProcessWads(fatFile *files, int fileCount, char *inFilePath, int installCnt, int uninstallCnt)
+int Menu_BatchProcessWads(fatFile *files, int fileCount, char *inFilePath)
 {
+	int installCnt = 0;
+	int uninstallCnt = 0;
 	int count;
+
+	for (fatFile* f = files; f < files + fileCount; f++) {
+		if (f->install == 1) installCnt++; else
+		if (f->install == 2) uninstallCnt++;
+	}
+
+	if (!(installCnt || uninstallCnt))
+		return 0;
 
 	for (;;)
 	{
@@ -647,32 +664,11 @@ int Menu_BatchProcessWads(fatFile *files, int fileCount, char *inFilePath, int i
 
 				if (thisFile->installstate < 0)
 				{
-					printf("    %.40s: ", thisFile->filename);
+					printf("    %.40s: %s\n", thisFile->filename, wad_strerror(thisFile->installstate));
 					i++;
-					
-					
-					switch (thisFile->installstate)
-					{
-						case -106:	puts("Not installed?"); break;
-						case -996:	puts("Read error"); break;
-						case -998:	puts("Skipped"); break;
-						case -999:	puts("BRICK BLOCKED"); break;
-						case -1010:	puts("Wii System memory full!");
-						case -1022:	puts("Content hash mismatch"); break;
-						case -1035:	puts("Newer version already installed"); break;
-						case -1036:	puts("Needed IOS missing!"); break;
-						case -2011:	puts("No trucha bug?"); break;
-						/*
-						 * from libogc.
-						 * This rarely happens unless the WAD had an invalid ticket/tmd size
-						 * (certs were not stripped after downloading from NUS maybe?)
-						 */
-						case ES_EINVAL: puts("Invalid WAD?"); break;
 
-						default: printf("error %d\n", thisFile->installstate); break;
-					}
 					
-					if(i == 17)
+					if (i == 17)
 					{
 						printf("\n    Press any button to continue\n");
 						WaitButtons();
@@ -685,19 +681,7 @@ int Menu_BatchProcessWads(fatFile *files, int fileCount, char *inFilePath, int i
 
 	if (gNeedPriiloaderOption)
 	{
-		printf("\n    Priiloader has been retained, but all hacks were reset.\n\n");
-		printf("    Press A launch Priiloader now.\n");
-		printf("    Press any other button to continue...\n");
-
-		u32 buttons = WaitButtons();
-		
-		if (buttons & WPAD_BUTTON_A)
-		{
-			gNeedPriiloaderOption = false;
-			*(vu32*)0x8132FFFB = 0x4461636f;
-			DCFlushRange((void*)0x8132FFFB, 4);
-			SYS_ResetSystem(SYS_RETURNTOMENU, 0, 0);
-		}
+		PriiloaderRetainedPrompt();
 
 		gNeedPriiloaderOption = false;
 	}
@@ -772,6 +756,193 @@ int Menu_FileOperations(fatFile *file, char *inFilePath)
 	return !error;
 }
 
+/* Folder operations - thepikachugamer */
+int Menu_FolderOperations(fatFile* file, char* path)
+{
+	int ret;
+
+	char workpath[MAX_FILE_PATH_LEN];
+
+	fatFile     *flist = NULL;
+	unsigned int fcnt = 0;
+	unsigned int wadcnt = 0;
+
+	char* ptr_fname = workpath + sprintf(workpath, "%s%s/", path, file->filename);
+
+	ret = __Menu_RetrieveList(workpath, &flist, &fcnt);
+	if (ret != 0)
+	{
+		WaitPrompt("__Menu_RetrieveList failed");
+		return 0;
+	}
+
+	fatFile* wads[fcnt];
+	for (fatFile* f = flist; f < flist + fcnt; f++)
+	{
+		if (f->iswad) wads[wadcnt++] = f;
+	}
+
+	const char* folderOperations[] = { "Install all WADs", "Install and delete all WADs" };
+	int mode = 0;
+	while (true)
+	{
+		Con_Clear();
+
+		printf("[+] Folder name: %s\n", file->filename);
+		printf("    WAD count  : %i\n\n", wadcnt);
+
+		printf("[+] Select action: < %s >\n\n", folderOperations[mode]);
+
+		puts("    Press LEFT/RIGHT to change selected action.");
+		puts("    Press A to continue.");
+		puts("    Press B to return to the menu.");
+
+		u32 buttons = WaitButtons();
+
+		if (buttons & (WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT))
+			mode ^= 1;
+
+		if (buttons & WPAD_BUTTON_A)
+			break;
+
+		if (buttons & WPAD_BUTTON_B)
+			goto finish;
+	}
+
+	if (!wadcnt)
+	{
+		WaitPrompt(">    WAD count: 0\n");
+		goto finish;
+	}
+
+	int start = 0; // No cursor here so we just need start
+	while (true)
+	{
+		Con_Clear();
+
+		printf("[+] List of WADs to %s:\n\n", mode ? "install and delete" : "install");
+		for (int i = 0; i < ENTRIES_PER_PAGE; i++)
+		{
+			int index = start + i;
+			if (index >= wadcnt) // Data store interrupt safety!!
+				putchar('\n');
+			else
+				printf("    %.50s\n", wads[index]->filename);
+		}
+
+		putchar('\n');
+		printf("[+] Press UP/DOWN to move list.\n");
+		printf("    Press A to continue.\n");
+		printf("    Press B to cancel.");
+
+		u32 buttons = WaitButtons();
+
+		if (buttons & WPAD_BUTTON_UP)
+		{
+			if (start) start--;
+		}
+		else if (buttons & WPAD_BUTTON_DOWN)
+		{
+			if (wadcnt - start > ENTRIES_PER_PAGE) start++;
+		}
+		else if (buttons & WPAD_BUTTON_A)
+		{
+			break;
+		}
+		else if (buttons & WPAD_BUTTON_B)
+		{
+			goto finish;
+		}
+	}
+
+	for (int i = 0; i < wadcnt; i++)
+	{
+		fatFile *f  = wads[i];
+		FILE    *fp = NULL;
+
+		Con_Clear();
+
+		printf("[+] Processing WAD %i/%i...\n\n", i + 1, wadcnt);
+
+		printf("[+] Opening \"%s\", please wait...\n", f->filename);
+		strcpy(ptr_fname, f->filename);
+		fp = fopen(workpath, "rb");
+		if (!fp)
+		{
+			printf("    ERROR! (errno=%i)\n", errno);
+		}
+		else
+		{
+			// puts(">> Installing WAD...");
+			f->installstate = ret = Wad_Install(fp);
+			fclose(fp);
+
+			if (!ret)
+			{
+				if (mode == 1)
+				{
+					printf(">> Deleting WAD... ");
+					// ret = FSOPDeleteFile(workpath);
+					ret = remove(workpath);
+					if (!ret)
+						puts("OK!");
+					else
+						printf("ERROR! (errno=%i)\n", errno);
+				}
+			}
+			else if (ret == -1010)
+			{
+				do { wads[i++]->installstate = -1010; } while (i < wadcnt);
+				WaitPrompt("Wii System Memory is full to the brim. Installation terminated...\n");
+				break;
+			}
+		}
+
+		usleep((!ret) ? 500000 : 4000000);
+		continue;
+	}
+
+	start = 0;
+	while (true)
+	{
+		Con_Clear();
+
+		printf("[+] End results:\n\n");
+
+		for (int i = 0; i < ENTRIES_PER_PAGE; i++)
+		{
+			int index = start + i;
+			if (index >= wadcnt) // Data store interrupt safety!!
+				putchar('\n');
+			else
+				printf("    %-.32s: %s\n", wads[index]->filename, wad_strerror(wads[index]->installstate));
+		}
+
+		putchar('\n');
+		printf("[+] Press UP/DOWN to move list.\n");
+		printf("    Press A to continue.");
+
+		u32 buttons = WaitButtons();
+
+		if (buttons & WPAD_BUTTON_UP)
+		{
+			if (start) start--;
+		}
+		else if (buttons & WPAD_BUTTON_DOWN)
+		{
+			if (wadcnt - start > ENTRIES_PER_PAGE) start++;
+		}
+		else if (buttons & WPAD_BUTTON_A)
+		{
+			break;
+		}
+	}
+
+finish:
+	free(flist);
+	return 0;
+}
+
 void Menu_WadManage(fatFile *file, char *inFilePath)
 {
 	FILE *fp  = NULL;
@@ -789,27 +960,29 @@ void Menu_WadManage(fatFile *file, char *inFilePath)
 		Con_Clear();
 		if(file->iswad) {
 			printf("[+] WAD Filename : %s\n", file->filename);
-			printf("    WAD Filesize : %.2f MB\n\n\n", filesize);
+			printf("    WAD Filesize : %.2f MB\n\n", filesize);
 
 
 			printf("[+] Select action: < %s WAD >\n\n", (!mode) ? "Install" : "Uninstall");
 
-			printf("    Press LEFT/RIGHT to change selected action.\n\n");
+			printf("    Press LEFT/RIGHT to change selected action.\n");
 			printf("    Press A to continue.\n");
 		}
 		else {
 			if(file->isdol) {
 				printf("[+] DOL Filename : %s\n", file->filename);
-				printf("    DOL Filesize : %.2f MB\n\n\n", filesize);
+				printf("    DOL Filesize : %.2f MB\n\n", filesize);
+
 				printf("    Press A to launch DOL.\n");
 			}
 			if(file->iself) {
 				printf("[+] ELF Filename : %s\n", file->filename);
-				printf("    ELF Filesize : %.2f MB\n\n\n", filesize);
+				printf("    ELF Filesize : %.2f MB\n\n", filesize);
+
 				printf("    Press A to launch ELF.\n");
 			}
 		}
-		printf("    Press B to go back to the menu.\n\n");
+		puts("    Press B to go back to the menu.");
 
 		u32 buttons = WaitButtons();
 
@@ -834,7 +1007,7 @@ void Menu_WadManage(fatFile *file, char *inFilePath)
 
 	/* Generate filepath */
 	// sprintf(filepath, "%s:" WAD_DIRECTORY "/%s", fdev->mount, file->filename);
-	sprintf(gTmpFilePath, "%s/%s", inFilePath, file->filename); // wiiNinja
+	sprintf(gTmpFilePath, "%s%s", inFilePath, file->filename); // wiiNinja
 	if(file->iswad) 
 	{
 		/* Open WAD */
@@ -861,25 +1034,8 @@ void Menu_WadManage(fatFile *file, char *inFilePath)
 
 			if (gNeedPriiloaderOption)
 			{
-				printf("\n    Priiloader has been retained, but all hacks were reset.\n\n");
-				printf("    Press A launch Priiloader now.\n");
-				printf("    Press any other button to continue...\n");
-
-				u32 buttons = WaitButtons();
-				
-				if (fp)
-					fclose(fp);
-				
-				if (buttons & WPAD_BUTTON_A)
-				{
-					gNeedPriiloaderOption = false;
-					*(vu32*)0x8132FFFB = 0x4461636f;
-					DCFlushRange((void*)0x8132FFFB, 4);
-					SYS_ResetSystem(SYS_RETURNTOMENU, 0, 0);
-				}
-
+				PriiloaderRetainedPrompt();
 				gNeedPriiloaderOption = false;
-
 				return;
 			}
 		}
@@ -918,59 +1074,31 @@ out:
 
 void Menu_WadList(void)
 {
-	char str [100];
 	fatFile *fileList = NULL;
 	u32      fileCnt;
 	int ret, selected = 0, start = 0;
-    char *tmpPath = malloc (MAX_FILE_PATH_LEN);
-	int installCnt = 0;
-	int uninstallCnt = 0;
-
-	//fatFile *installFiles = malloc(sizeof(fatFile) * 50);
-	//int installCount = 0;
-
-    // wiiNinja: check for malloc error
-    if (tmpPath == NULL)
-    {
-        ret = -997; // What am I gonna use here?
-		printf(" ERROR! Out of memory (ret = %d)\n", ret);
-        return;
-    }
+	bool batchMode = false;
+	char tmpPath[MAX_FILE_PATH_LEN];
 
 	Con_Clear();
 	printf("[+] Retrieving file list...");
 	fflush(stdout);
 
-	gDirLevel = 0;
-
-	// push root dir as base folderGetDevice()
-	//sprintf(tmpPath, "%s:%s", fdev->mount, WAD_DIRECTORY);
-	sprintf(tmpPath, "%s:%s", FatGetDevicePrefix(gSelected), WAD_DIRECTORY);
-	PushCurrentDir(tmpPath,0,0);
 	// if user provides startup directory, try it out first
-	if (strcmp (WAD_DIRECTORY, gConfig.startupPath) != 0)
+	if (strcmp(gConfig.startupPath, WAD_DIRECTORY) != 0)
 	{
 		// replace root dir with provided startup directory
 		sprintf(tmpPath, "%s:%s", FatGetDevicePrefix(gSelected), gConfig.startupPath);
 
-		if (FSOPFolderExists(tmpPath))
-			PushCurrentDir(tmpPath, 0, 0);
-		else
-			sprintf(tmpPath, "%s:%s", FatGetDevicePrefix(gSelected), WAD_DIRECTORY);
-		
-		// If the directory can be successfully opened, it must exists
-  //      DIR *tmpDirPtr = opendir(tmpPath);
-  //      if (tmpDirPtr)
-  //      {
-		//	closedir (tmpDirPtr);
-		//	PushCurrentDir(tmpPath,0,0);
-  //      }
-		//else // unable to open provided dir, stick with root dir
-		//{
-		//	sprintf(tmpPath, "%s:%s", FatGetDevicePrefix(gSelected), WAD_DIRECTORY);
-		//}
+		// Be absolutely sure that the path ends with a /, we need this
+		if (strchr(tmpPath, 0)[-1] != '/')
+			strcat(tmpPath, "/");
 
+		if (FSOPFolderExists(tmpPath))
+			goto getList;
 	}
+
+	sprintf(tmpPath, "%s:%s", FatGetDevicePrefix(gSelected), WAD_DIRECTORY);
 
 	/* Retrieve filelist */
 getList:
@@ -992,6 +1120,7 @@ getList:
 	}
 
 	/* Set install-values to 0 - Leathl */
+/*
 	int counter;
 	for (counter = 0; counter < fileCnt; counter++) 
 	{
@@ -999,7 +1128,7 @@ getList:
 		file->install = 0;
 		file->installstate = 0;
 	}
-
+*/
 	for (;;)
 	{
 		u32 cnt;
@@ -1009,13 +1138,12 @@ getList:
 		Con_Clear();
 
 		/** Print entries **/
-		cnt = strlen(tmpPath);
-		if(cnt > 30)
-			index = cnt - 30;
-		else
-			index = 0;
+		char* pathStart = tmpPath;
+		char* pathEnd = strchr(tmpPath, 0);
+		if ((pathEnd - pathStart) > 30)
+			pathStart = pathEnd - 30;
 		
-		printf("[+] Files on [%s]:\n\n", tmpPath+index);
+		printf("[+] Files on [%s]:\n\n", pathStart);
 		
 		/* Print entries */
 		for (cnt = start; cnt < fileCnt; cnt++)
@@ -1027,43 +1155,54 @@ getList:
 			if ((cnt - start) >= ENTRIES_PER_PAGE)
 				break;
 
-			strncpy(str, file->filename, 40); //Only 40 chars to fit the screen
-			str[40] = 0;
 
 			/* Print filename */
 			//printf("\t%2s %s (%.2f MB)\n", (cnt == selected) ? ">>" : "  ", file->filename, filesize);
             if (file->isdir) // wiiNinja
 			{
-				printf("\t%2s [%s]\n", (cnt == selected) ? ">>" : "  ", str);
+				printf("\t%2s [%.40s]\n", (cnt == selected) ? ">>" : "  ", file->filename);
 			}
             else 
 			{
                 if(file->iswad)
-					printf("\t%2s%s%s (%.2f MB)\n", (cnt == selected) ? ">>" : "  ", (file->install == 1) ? "+" : ((file->install == 2) ? "-" : " "), str, filesize);
+					printf("\t%2s%c%.40s (%.2f MB)\n", (cnt == selected) ? ">>" : "  ", " +-"[file->install], file->filename, filesize);
 				else
-					printf("\t%2s %s (%.2f MB)\n", (cnt == selected) ? ">>" : "  ", str, filesize);
+					printf("\t%2s %.40s (%.2f MB)\n", (cnt == selected) ? ">>" : "  ", file->filename, filesize);
 			}
 		}
 
-		printf("\n");
+		putchar('\n');
 		fatFile *file = &fileList[selected];
-		
-		if (file->iswad)
-			printf("[+] Press A to (un)install.");
-		else if (file->isdol || file->iself)
-			printf("[+] Press A to launch dol/elf.");
-		else if (file->isdir)
-			printf("[+] Press A to Enter directory.");
-		
-		if (gDirLevel > 1)
-			printf(" Press B to go up-level DIR.\n");
+		// There is only one occurence of /, likely because we are at the root!
+		bool atRoot = (strchr(tmpPath, '/') == strrchr(tmpPath, '/'));
+
+		const char* operationB = (atRoot) ? "Change source device" : "Go to parent directory";
+		const char* operationR = (file->isdir) ? "Folder operations" : "File operations";
+
+		if (batchMode)
+		{
+			printf("[+] A:   Batch operations       B:   %s\n", operationB);
+			printf("    1/R: %-23s"                "2/L: Disable batch mode\n", operationR);
+			printf("    +/X: Mark for install       -/Y: Mark for uninstall");
+		}
 		else
-			printf(" Press B to select a device.\n");
+		{
+			const char* operationA = "";
 
-		if (file->iswad)
-			printf("    Use +/X and -/Y to (un)mark. Press 1/Z/ZR for delete menu.");
+			if (file->iswad)
+				operationA = "Install/Uninstall WAD";
+			else if (file->isdol || file->iself)
+				operationA = "Launch application";
+			else if (file->isdir)
+				operationA = "Enter directory";
 
-			/** Controls **/
+			//     "[+]   A: Install/Uninstall WAD"
+			printf("[+] A:   %-23s"                "B:   %s\n", operationA, operationB);
+			printf("    1/R: %-23s"                "2/L: Enable batch mode", operationR);
+		}
+
+
+		/** Controls **/
 		u32 buttons = WaitButtons();
 			
 		/* DPAD buttons */
@@ -1106,235 +1245,111 @@ getList:
 			Restart();
 		}
 
-		if (file->iswad) 
+		else if (buttons & (WPAD_BUTTON_PLUS | WPAD_BUTTON_MINUS) && batchMode && file->iswad)
 		{
-			/* Plus Button - Leathl */
-			if (buttons & WPAD_BUTTON_PLUS)
+			int install = (buttons & WPAD_BUTTON_PLUS) ? 1 : 2;
+
+			if (Wpad_TimeButton())
 			{
-				if(Wpad_TimeButton())
+				// installCnt = uninstallCnt = 0;
+				for (fatFile* f = fileList; f < fileList + fileCnt; f++)
 				{
-					installCnt = 0;
-					int i = 0;
-					while(i < fileCnt)
+					if (!f->iswad)
 					{
-						fatFile *file = &fileList[i];
-						if (((file->isdir) == false) && (file->install == 0)) 
-						{
-							file->install = 1;
-							installCnt++;
-						}
-						else if (((file->isdir) == false) && (file->install == 1)) 
-						{
-							file->install = 0;
-							installCnt--;
-						}
-						else if (((file->isdir) == false) && (file->install == 2)) 
-						{
-							file->install = 1;
-
-							installCnt++;
-							uninstallCnt--;
-						}
-
-						i++;
+						continue;
 					}
-				}
-				else
-				{
-					fatFile *file = &fileList[selected];
-					if (((file->isdir) == false) && (file->install == 0)) 
-					{
-						file->install = 1;
-						installCnt++;
-					}
-					else if (((file->isdir) == false) & (file->install == 1)) 
-					{
-						file->install = 0;
-						installCnt--;
-					}
-					else if (((file->isdir) == false) & (file->install == 2)) 
-					{
-						file->install = 1;
-
-						installCnt++;
-						uninstallCnt--;
-					}
-					
-					selected++;
-					if (selected >= fileCnt)
-						selected = 0;
+					f->install = (f->install != install) ? install : 0;
 				}
 			}
-
-			/* Minus Button - Leathl */
-			else if (buttons & WPAD_BUTTON_MINUS)
+			else
 			{
-				if(Wpad_TimeButton())
-				{
-					installCnt = 0;
-					int i = 0;
-			  
-					while(i < fileCnt)
-					{
-						fatFile *file = &fileList[i];
-						if (((file->isdir) == false) && (file->install == 0)) 
-						{
-							file->install = 2;
-							uninstallCnt++;
-						}
-						else if (((file->isdir) == false) && (file->install == 1)) 
-						{
-							file->install = 2;
-							uninstallCnt++;
-							installCnt--;
-						}
-						else if (((file->isdir) == false) & (file->install == 2)) 
-						{
-							file->install = 0;
-							uninstallCnt--;
-						}
+				file->install = (file->install != install) ? install : 0;
 
-						i++;
-					}
-				}
-				else
-				{
-					fatFile *file = &fileList[selected];
-					if (((file->isdir) == false) && (file->install == 0)) 
-					{
-						file->install = 2;
-						uninstallCnt++;
-					}
-					else if (((file->isdir) == false) && (file->install == 1)) 
-					{
-						file->install = 2;
-						uninstallCnt++;
-						installCnt--;
-					}
-					else if (((file->isdir) == false) && (file->install == 2)) 
-					{
-						file->install = 0;
-						uninstallCnt--;
-					}
-			 
-					selected++;
-					if (selected >= fileCnt)
-						selected = 0;
-				}
+				selected++;
+				if (selected >= fileCnt)
+					selected = 0;
 			}
-
 		}
-		
+
 		/* 1 Button - Leathl */
-		if (buttons & WPAD_BUTTON_1)
+		if (buttons & WPAD_BUTTON_1 && !batchMode)
 		{
-			fatFile *tmpFile = &fileList[selected];
-			char *tmpCurPath = PeekCurrentDir();
-            if (tmpCurPath != NULL) 
+			int res = (file->isdir ? Menu_FolderOperations : Menu_FileOperations)(file, tmpPath);
+			if (res != 0)
+				goto getList;
+		}
+
+		/* 2 button - thepikachugamer */
+		if (buttons & WPAD_BUTTON_2)
+		{
+			batchMode ^= 1;
+			if (!batchMode) // Turned off
 			{
-				int res = Menu_FileOperations(tmpFile, tmpCurPath);
-                if (res != 0)
-					goto getList;
+				for (fatFile* f = fileList; f < fileList + fileCnt; f++)
+				{
+					if (!f->iswad)
+						continue;
+					f->install = 0;
+				}
 			}
 		}
 
 		/* A button */
 		else if (buttons & WPAD_BUTTON_A)
 		{
-			fatFile *tmpFile = &fileList[selected];
-			char *tmpCurPath;
-			if (tmpFile->isdir) // wiiNinja
+			if (batchMode)
 			{
-				if (strcmp (tmpFile->filename, "..") == 0)
+				int res = Menu_BatchProcessWads(fileList, fileCnt, tmpPath);
+
+				if (res == 1)
 				{
-					selected = 0;
-					start = 0;
+					for (fatFile* f = fileList; f <  fileList + fileCnt; f++)
+					{
+						f->install = f->installstate = 0;
+					}
+					batchMode = false;
+				}
+			}
+			// else use standard wadmanage menu - Leathl
+			else
+			{
+				if (file->isdir) // wiiNinja
+				{
+					selected = start = 0;
 
-					// Previous dir
-					tmpCurPath = PopCurrentDir(&selected, &start);
-					if (tmpCurPath != NULL)
-						sprintf(tmpPath, "%s", tmpCurPath);
-
-					installCnt = 0;
-					uninstallCnt = 0;
+					if (!strcmp(file->filename, "..")) // We only add this entry when we are not at the root
+					{
+						// Previous dir                         v
+						strrchr(tmpPath, '/')[0] = 0; // sd:/wad/
+						strrchr(tmpPath, '/')[1] = 0; //     ^
+					}
+					else
+					{
+						strcat(tmpPath, file->filename);
+						strcat(tmpPath, "/");
+					}
 
 					goto getList;
-				}
-				else if (IsListFull() == true)
-				{
-					WaitPrompt ("Maximum number of directory levels is reached.\n");
 				}
 				else
 				{
-					tmpCurPath = PeekCurrentDir ();
-					if (tmpCurPath != NULL)
-					{
-						if(gDirLevel > 1)
-							sprintf(tmpPath, "%s/%s", tmpCurPath, tmpFile->filename);
-						else
-							sprintf(tmpPath, "%s%s", tmpCurPath, tmpFile->filename);
-					}
-					
-					// wiiNinja: Need to PopCurrentDir
-					PushCurrentDir (tmpPath, selected, start);
-					selected = 0;
-					start = 0;
-
-					installCnt = 0;
-					uninstallCnt = 0;
-
-					goto getList;
+					Menu_WadManage(file, tmpPath);
 				}
 			}
-			else
-			{
-				//If at least one WAD is marked, goto batch screen - Leathl
-				if ((installCnt > 0) || (uninstallCnt > 0)) 
-				{
-					char *thisCurPath = PeekCurrentDir ();
-					if (thisCurPath != NULL) 
-					{
-						int res = Menu_BatchProcessWads(fileList, fileCnt, thisCurPath, installCnt, uninstallCnt);
 
-						if (res == 1) 
-						{
-							int counter;
-							for (counter = 0; counter < fileCnt; counter++) 
-							{
-								fatFile *temp = &fileList[counter];
-								temp->install = 0;
-								temp->installstate = 0;
-							}
-
-							installCnt = 0;
-							uninstallCnt = 0;
-						}
-					}
-				}
-				//else use standard wadmanage menu - Leathl
-				else 
-				{
-					tmpCurPath = PeekCurrentDir();
-					if (tmpCurPath != NULL)
-						Menu_WadManage(tmpFile, tmpCurPath);
-				}
-			}
 		}
 
 		/* B button */
 		else if (buttons & WPAD_BUTTON_B)
 		{
-			if (gDirLevel <= 1)
+			if (atRoot)
 				return;
 
-			char *tmpCurPath;
-			selected = 0;
-			start = 0;
+			selected = start = 0;
 			
-			// Previous dir
-			tmpCurPath = PopCurrentDir(&selected, &start);
-			if (tmpCurPath != NULL)
-				sprintf(tmpPath, "%s", tmpCurPath);
+			// Previous dir                         v
+			strrchr(tmpPath, '/')[0] = 0; // sd:/wad/
+			strrchr(tmpPath, '/')[1] = 0; //     ^
 			
 			goto getList;
 		}
@@ -1352,8 +1367,6 @@ getList:
 err:
 	printf("\n");
 	printf("    Press any button to continue...\n");
-
-	free(tmpPath);
 
 	/* Wait for button */
 	WaitButtons();
@@ -1397,6 +1410,7 @@ void SetPriiloaderOption(bool enabled)
 	gNeedPriiloaderOption = enabled;
 }
 
+#if 0
 // Start of wiiNinja's added routines
 int PushCurrentDir (char *dirStr, int Selected, int Start)
 {
@@ -1447,6 +1461,7 @@ char *PeekCurrentDir (void)
     else
         return (NULL);
 }
+#endif
 
 void WaitPrompt (char *prompt)
 {
@@ -1499,14 +1514,14 @@ u32 WaitButtons(void)
 	/* Wait for button pressing */
 	while (!(buttons | buttonsGC | buttonsDRC | buttonsWKB))
     {
-        // Wii buttons
+		// Wii buttons
 		buttons = Wpad_GetButtons();
 
-        // GC buttons
-        buttonsGC = Pad_GetButtons();
+		// GC buttons
+		buttonsGC = Pad_GetButtons();
 
-        // DRC buttons
-        buttonsDRC = WiiDRC_GetButtons();
+		// DRC buttons
+		buttonsDRC = WiiDRC_GetButtons();
 
 		// USB Keyboard buttons
 		buttonsWKB = WKB_GetButtons();
@@ -1514,50 +1529,54 @@ u32 WaitButtons(void)
 		VIDEO_WaitVSync();
 	}
 
-	if(buttons & WPAD_CLASSIC_BUTTON_A)
+	if (buttons & WPAD_CLASSIC_BUTTON_A)
 		buttons |= WPAD_BUTTON_A;
-	else if(buttons & WPAD_CLASSIC_BUTTON_B)
+	else if (buttons & WPAD_CLASSIC_BUTTON_B)
 		buttons |= WPAD_BUTTON_B;
-	else if(buttons & WPAD_CLASSIC_BUTTON_LEFT)
-		buttons |= WPAD_BUTTON_LEFT;
-	else if(buttons & WPAD_CLASSIC_BUTTON_RIGHT)
-		buttons |= WPAD_BUTTON_RIGHT;
-	else if(buttons & WPAD_CLASSIC_BUTTON_DOWN)
-		buttons |= WPAD_BUTTON_DOWN;
-	else if(buttons & WPAD_CLASSIC_BUTTON_UP)
-		buttons |= WPAD_BUTTON_UP;
-	else if(buttons & WPAD_CLASSIC_BUTTON_HOME)
-		buttons |= WPAD_BUTTON_HOME;
-	else if(buttons & (WPAD_CLASSIC_BUTTON_X | WPAD_CLASSIC_BUTTON_PLUS))
-		buttons |= WPAD_BUTTON_PLUS;
-	else if(buttons & (WPAD_CLASSIC_BUTTON_Y | WPAD_CLASSIC_BUTTON_MINUS))
-		buttons |= WPAD_BUTTON_MINUS;
-	else if(buttons & WPAD_CLASSIC_BUTTON_ZR)
+	else if (buttons & WPAD_CLASSIC_BUTTON_X)
 		buttons |= WPAD_BUTTON_1;
+	else if (buttons & WPAD_CLASSIC_BUTTON_Y)
+		buttons |= WPAD_BUTTON_2;
+	else if (buttons & WPAD_CLASSIC_BUTTON_LEFT)
+		buttons |= WPAD_BUTTON_LEFT;
+	else if (buttons & WPAD_CLASSIC_BUTTON_RIGHT)
+		buttons |= WPAD_BUTTON_RIGHT;
+	else if (buttons & WPAD_CLASSIC_BUTTON_DOWN)
+		buttons |= WPAD_BUTTON_DOWN;
+	else if (buttons & WPAD_CLASSIC_BUTTON_UP)
+		buttons |= WPAD_BUTTON_UP;
+	else if (buttons & WPAD_CLASSIC_BUTTON_HOME)
+		buttons |= WPAD_BUTTON_HOME;
+	else if (buttons & WPAD_CLASSIC_BUTTON_PLUS)
+		buttons |= WPAD_BUTTON_PLUS;
+	else if (buttons & WPAD_CLASSIC_BUTTON_MINUS)
+		buttons |= WPAD_BUTTON_MINUS;
 
-    if (buttonsGC)
-    {
-        if(buttonsGC & PAD_BUTTON_A)
-            buttons |= WPAD_BUTTON_A;
-        else if(buttonsGC & PAD_BUTTON_B)
-            buttons |= WPAD_BUTTON_B;
-        else if(buttonsGC & PAD_BUTTON_LEFT)
-            buttons |= WPAD_BUTTON_LEFT;
-        else if(buttonsGC & PAD_BUTTON_RIGHT)
-            buttons |= WPAD_BUTTON_RIGHT;
-        else if(buttonsGC & PAD_BUTTON_DOWN)
-            buttons |= WPAD_BUTTON_DOWN;
-        else if(buttonsGC & PAD_BUTTON_UP)
-            buttons |= WPAD_BUTTON_UP;
-        else if(buttonsGC & PAD_BUTTON_START)
-            buttons |= WPAD_BUTTON_HOME;
-        else if(buttonsGC & PAD_BUTTON_X)
-            buttons |= WPAD_BUTTON_PLUS;
-        else if(buttonsGC & PAD_BUTTON_Y)
-            buttons |= WPAD_BUTTON_MINUS;
-        else if(buttonsGC & PAD_TRIGGER_Z)
-            buttons |= WPAD_BUTTON_1;
-    }
+	if (buttonsGC)
+	{
+		if (buttonsGC & PAD_BUTTON_A)
+			buttons |= WPAD_BUTTON_A;
+		else if (buttonsGC & PAD_BUTTON_B)
+			buttons |= WPAD_BUTTON_B;
+		else if (buttonsGC & PAD_BUTTON_LEFT)
+			buttons |= WPAD_BUTTON_LEFT;
+		else if (buttonsGC & PAD_BUTTON_RIGHT)
+			buttons |= WPAD_BUTTON_RIGHT;
+		else if (buttonsGC & PAD_BUTTON_DOWN)
+			buttons |= WPAD_BUTTON_DOWN;
+		else if (buttonsGC & PAD_BUTTON_UP)
+			buttons |= WPAD_BUTTON_UP;
+		else if (buttonsGC & PAD_BUTTON_START)
+			buttons |= WPAD_BUTTON_HOME;
+		else if (buttonsGC & PAD_BUTTON_X)
+			buttons |= WPAD_BUTTON_PLUS;
+		else if (buttonsGC & PAD_BUTTON_Y)
+			buttons |= WPAD_BUTTON_MINUS;
+		else if (buttonsGC & (PAD_TRIGGER_R | PAD_TRIGGER_Z))
+			buttons |= WPAD_BUTTON_1;
+		else if (buttonsGC & PAD_TRIGGER_L)
+			buttons |= WPAD_BUTTON_2;
+		}
 
     if (buttonsDRC)
     {
@@ -1575,12 +1594,14 @@ u32 WaitButtons(void)
             buttons |= WPAD_BUTTON_UP;
         else if(buttonsDRC & WIIDRC_BUTTON_HOME)
             buttons |= WPAD_BUTTON_HOME;
-        else if(buttonsDRC & (WIIDRC_BUTTON_X | WIIDRC_BUTTON_PLUS))
+        else if(buttonsDRC & (WIIDRC_BUTTON_PLUS | WIIDRC_BUTTON_X))
             buttons |= WPAD_BUTTON_PLUS;
-        else if(buttonsDRC & (WIIDRC_BUTTON_Y | WIIDRC_BUTTON_MINUS))
+        else if(buttonsDRC & (WIIDRC_BUTTON_MINUS | WIIDRC_BUTTON_Y))
             buttons |= WPAD_BUTTON_MINUS;
-        else if(buttonsDRC & WIIDRC_BUTTON_ZR)
+        else if(buttonsDRC & (WIIDRC_BUTTON_R | WIIDRC_BUTTON_ZR))
             buttons |= WPAD_BUTTON_1;
+        else if(buttonsDRC & (WIIDRC_BUTTON_L | WIIDRC_BUTTON_ZL))
+            buttons |= WPAD_BUTTON_2;
     }
 
     if (buttonsWKB)
@@ -1610,3 +1631,21 @@ void WiiLightControl (int state)
 	}
 } // WiiLightControl
 
+void PriiloaderRetainedPrompt(void)
+{
+	puts("    Priiloader has been retained, but all hacks were reset.\n");
+
+	puts("    Press A launch Priiloader now.");
+	puts("    Press any other button to continue...");
+
+	u32 buttons = WaitButtons();
+
+	if (buttons & WPAD_BUTTON_A)
+	{
+		gNeedPriiloaderOption = false;
+		*(vu32*)0x8132FFFB = 0x4461636f;
+		DCFlushRange((void*)0x8132FFFB, 4);
+		SYS_ResetSystem(SYS_RETURNTOMENU, 0, 0);
+		__builtin_unreachable();
+	}
+}

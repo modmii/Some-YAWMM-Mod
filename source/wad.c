@@ -603,6 +603,31 @@ bool __Wad_VerifyHeader(wadHeader* header)
 	&&	header->padding == 0x00;
 }
 
+const char* wad_strerror(int ec)
+{
+	switch (ec)
+	{
+		case 0:		return "Success";
+		case -106:	return "Not found";
+		case -996:	return "Read error";
+		case -998:	return "Skipped";
+		case -999:	return "BRICK BLOCKED";
+		case -1010:	return "Wii System memory full!";
+		case -1022:	return "Content hash mismatch";
+		case -1035:	return "Newer version already installed";
+		case -1036:	return "Needed IOS missing!";
+		case -2011:	return "No trucha bug?";
+		/*
+		 * from libogc.
+		 * This rarely happens unless the WAD had an invalid ticket/tmd size
+		 * (certs were not stripped after downloading from NUS maybe?)
+		 */
+		case ES_EINVAL: return "Invalid WAD?"; break;
+
+		default: return "unknown error";
+	}
+}
+
 // Some of the safety checks can block region changing
 // Entering the Konami code turns this true, so it will
 // skip the problematic checks for region changing.

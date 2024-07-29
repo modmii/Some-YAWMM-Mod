@@ -25,7 +25,7 @@ s32 __Gui_DrawPng(void *img, u32 x, u32 y)
 
 	for (i = 0; i < FatGetDeviceCount(); i++)
 	{
-		snprintf(path, sizeof(path), "%s:/wad/background.png", FatGetDevicePrefix(i));
+		snprintf(path, sizeof(path), "%s:%s", FatGetDevicePrefix(i), WM_BACKGROUND_PATH);
 		if (FSOPFileExists(path))
 		{
 			ctx = PNGU_SelectImageFromDevice(path);

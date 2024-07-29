@@ -5,16 +5,15 @@
 #define CIOS_VERSION		249
 #define ENTRIES_PER_PAGE	12
 #define MAX_FILE_PATH_LEN	1024
-#define MAX_DIR_LEVELS		10
 #define WAD_DIRECTORY		"/"
-#define WAD_ROOT_DIRECTORY  "/wad"
+#define WAD_ROOT_DIRECTORY  "/wad/"
 
 #define MAX_PASSWORD_LENGTH  	10
 #define MAX_FAT_DEVICE_LENGTH  	10
 #define MAX_NAND_DEVICE_LENGTH  10
 
-#define WM_CONFIG_FILE_PATH ":/wad/wm_config.txt"
-#define WM_BACKGROUND_PATH ":/wad/background.png"
+#define WM_CONFIG_FILE_PATH "/wad/wm_config.txt"
+#define WM_BACKGROUND_PATH "/wad/background.png"
 
 #define FAT_DEVICE_INDEX_INVALID -1
 #define NAND_DEVICE_INDEX_INVALID   -1

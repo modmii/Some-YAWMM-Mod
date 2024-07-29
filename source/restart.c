@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <ogcsys.h>
 
 #include "restart.h"
@@ -28,5 +29,5 @@ void Restart(void)
 	Nand_Disable();
 
 	/* Load system menu */
-	Sys_LoadMenu();
+	exit(0);
 }

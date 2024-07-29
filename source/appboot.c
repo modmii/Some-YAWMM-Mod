@@ -180,7 +180,7 @@ void LaunchApp(void)
 	entry();
 
 	printf("--> Well.. this shouldn't happen\n");
-	Sys_LoadMenu();
+	exit(-1);
 }
 
 void SetIos(int ios)

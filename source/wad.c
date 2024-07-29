@@ -417,7 +417,7 @@ static void PrintCleanupResult(s32 result)
 		{
 			case -102:
 			{
-				printf(" Acces denied.\n");
+				printf(" Access denied.\n");
 			} break;
 			case -106:
 			{
@@ -737,9 +737,9 @@ s32 Wad_Install(FILE *fp)
 				iv[1] = 0;
 				AES_Decrypt(titlekey, sizeof(aeskey), iv, sizeof(iv), &build_tag, &build_tag, sizeof(cIOSInfo));
 
-				if (build_tag.hdr_magic != CIOS_INFO_MAGIC ||
+				if ((build_tag.hdr_magic != CIOS_INFO_MAGIC ||
 					build_tag.hdr_version != CIOS_INFO_VERSION ||
-					(build_tag.ios_base != 60 && ES_CheckHasKoreanKey()))
+					build_tag.ios_base != 60) && ES_CheckHasKoreanKey())
 				{
 					printf("\n"
 						"	Installing this System menu IOS will brick your Wii.\n"
@@ -786,17 +786,9 @@ s32 Wad_Install(FILE *fp)
 		{
 			if (tmdIsStubIOS(tmd_data))
 			{
-				printf("\n    Are you sure you wan't to install a stub HBC IOS?\n");
-				printf("\n    Press A to continue.");
-				printf("\n    Press B skip.");
-			
-				u32 buttons = WaitButtons();
-			
-				if (!(buttons & WPAD_BUTTON_A))
-				{
-					ret = -998;
-					goto err;
-				}
+				printf("\n    I won't stub Homebrew Channel's IOS\n");
+				ret = -999;
+				goto err;
 			}
 		}
 	}
@@ -864,8 +856,9 @@ s32 Wad_Install(FILE *fp)
 			{
 				cIOSInfo ios_info;
 
-				if (!Sys_GetcIOSInfo(TITLE_LOWER(tmd_data->sys_version), &ios_info) ||
-					(ios_info.ios_base != 60 && ES_CheckHasKoreanKey()))
+				if (ES_CheckHasKoreanKey() &&
+					(!Sys_GetcIOSInfo(TITLE_LOWER(tmd_data->sys_version), &ios_info) ||
+					ios_info.ios_base != 60))
 				{
 					printf("\n"
 						"	Installing this System menu will brick your Wii.\n"
@@ -1269,17 +1262,9 @@ s32 Wad_Uninstall(FILE *fp)
 		||  tid == get_title_ios(TITLE_ID(0x10001, 0x4C554C5A))
 		||  tid == get_title_ios(TITLE_ID(0x10001, 0x4F484243)))
 		{
-			printf("\n    This is the HBCs IOS, uninstalling will break the HBC!!\n");
-			printf("\n    Press A to continue.");
-			printf("\n    Press B skip.");
-
-			u32 buttons = WaitButtons();
-
-			if (!(buttons & WPAD_BUTTON_A))
-			{
-				ret = -998;
-				goto out;
-			}
+			printf("\n    I won't uninstall the Homebrew Channel's IOS!\n");
+			ret = -999;
+			goto out;
 		}
 	}
 

@@ -983,73 +983,76 @@ skipChecks:
 	if (ret < 0)
 		goto err;
 
-	/* Get list of currently installed shared contents */
-	Sys_GetSharedContents(&sharedContents, &sharedContentsCount);
-	
-	/* Install contents */
-	for (cnt = 0; cnt < tmd_data->num_contents; cnt++) 
+	if (header->data_len)	// Bogus WADs have no contents
 	{
-		tmd_content *content = &tmd_data->contents[cnt];
-
-		u32 idx = 0, len;
-		s32 cfd;
-
-		/* Encrypted content size */
-		len = round_up(content->size, 64);
-
-		if (Sys_SharedContentPresent(content, sharedContents, sharedContentsCount))
+		/* Get list of currently installed shared contents */
+		Sys_GetSharedContents(&sharedContents, &sharedContentsCount);
+		
+		/* Install contents */
+		for (cnt = 0; cnt < tmd_data->num_contents; cnt++) 
 		{
-			offset += len;
-			continue;
-		}
+			tmd_content *content = &tmd_data->contents[cnt];
 
-		Con_ClearLine();
-		printf("\r\t\t>> Installing content #%02d...", content->cid);
-		fflush(stdout);
+			u32 idx = 0, len;
+			s32 cfd;
 
-		/* Install content */
-		cfd = ES_AddContentStart(tmd_data->title_id, content->cid);
-		if (cfd < 0) 
-		{
-			ret = cfd;
-			goto err;
-		}
+			/* Encrypted content size */
+			len = round_up(content->size, 64);
 
-		/* Install content data */
-		while (idx < len) 
-		{
-			u32 size;
-
-			/* Data length */
-			size = (len - idx);
-			if (size > BLOCK_SIZE)
-				size = BLOCK_SIZE;
-
-			/* Read data */
-			ret = FSOPReadOpenFile(fp, &wadBuffer, offset, size);
-			if (ret != 1)
+			if (Sys_SharedContentPresent(content, sharedContents, sharedContentsCount))
 			{
-				ES_AddContentFinish(cfd);
+				offset += len;
+				continue;
+			}
+
+			Con_ClearLine();
+			printf("\r\t\t>> Installing content #%02d...", content->cid);
+			fflush(stdout);
+
+			/* Install content */
+			cfd = ES_AddContentStart(tmd_data->title_id, content->cid);
+			if (cfd < 0) 
+			{
+				ret = cfd;
 				goto err;
 			}
-				
-			/* Install data */
-			ret = ES_AddContentData(cfd, wadBuffer, size);
+
+			/* Install content data */
+			while (idx < len) 
+			{
+				u32 size;
+
+				/* Data length */
+				size = (len - idx);
+				if (size > BLOCK_SIZE)
+					size = BLOCK_SIZE;
+
+				/* Read data */
+				ret = FSOPReadOpenFile(fp, &wadBuffer, offset, size);
+				if (ret != 1)
+				{
+					ES_AddContentFinish(cfd);
+					goto err;
+				}
+					
+				/* Install data */
+				ret = ES_AddContentData(cfd, wadBuffer, size);
+				if (ret < 0)
+				{
+					ret = ES_AddContentFinish(cfd);
+					goto err;
+				}
+
+				/* Increase variables */
+				idx    += size;
+				offset += size;
+			}
+
+			/* Finish content installation */
+			ret = ES_AddContentFinish(cfd);
 			if (ret < 0)
-			{
-				ret = ES_AddContentFinish(cfd);
 				goto err;
-			}
-
-			/* Increase variables */
-			idx    += size;
-			offset += size;
 		}
-
-		/* Finish content installation */
-		ret = ES_AddContentFinish(cfd);
-		if (ret < 0)
-			goto err;
 	}
 	
 	Con_ClearLine();

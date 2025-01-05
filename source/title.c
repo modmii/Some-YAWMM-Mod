@@ -5,6 +5,7 @@
 #include <ogcsys.h>
 #include <ogc/es.h>
 
+#include "title.h"
 #include "sha1.h"
 #include "aes.h"
 #include "utils.h"
@@ -319,6 +320,125 @@ out:
 	return ret;
 }
 
+s32 Title_GetSharedContents(SharedContent** out, u32* count)
+{
+	if (!out || !count) return false;
+
+	u32 size;
+	SharedContent* buf = (SharedContent*)NANDLoadFile("/shared1/content.map", &size);
+
+	if (!buf)
+		return (s32)size;
+
+	else if (size % sizeof(SharedContent) != 0) {
+		free(buf);
+		return -996;
+	}
+
+	*out = buf;
+	*count = size / sizeof(SharedContent);
+
+	return 0;
+}
+
+bool Title_SharedContentPresent(tmd_content* content, SharedContent shared[], u32 count)
+{
+	if (!shared || !content || !count)
+		return false;
+
+	if (!(content->type & 0x8000))
+		return false;
+
+	for (SharedContent* s_content = shared; s_content < shared + count; s_content++)
+	{
+		if (memcmp(s_content->hash, content->hash, sizeof(sha1)) == 0)
+			return true;
+	}
+
+	return false;
+}
+
+bool Title_GetcIOSInfo(int IOS, cIOSInfo* out)
+{
+	u64 titleID = 0x0000000100000000ULL | IOS;
+	ATTRIBUTE_ALIGN(0x20) char path[ISFS_MAXPATH];
+	u32 size;
+	cIOSInfo* buf = NULL;
+
+	u32 view_size = 0;
+	if (ES_GetTMDViewSize(titleID, &view_size) < 0)
+		return false;
+
+	tmd_view* view = memalign32(view_size);
+	if (!view)
+		return false;
+
+	if (ES_GetTMDView(titleID, (u8*)view, view_size) < 0)
+		goto fail;
+
+	tmd_view_content* content0 = NULL;
+
+	for (tmd_view_content* con = view->contents; con < view->contents + view->num_contents; con++)
+	{
+		if (con->index == 0)
+			content0 = con;
+	}
+
+	if (!content0)
+		goto fail;
+
+	sprintf(path, "/title/00000001/%08x/content/%08x.app", IOS, content0->cid);
+	buf = (cIOSInfo*)NANDLoadFile(path, &size);
+
+	if (!buf || size != 0x40 || buf->hdr_magic != CIOS_INFO_MAGIC || buf->hdr_version != CIOS_INFO_VERSION)
+		goto fail;
+
+	*out = *buf;
+	free(view);
+	free(buf);
+	return true;
+
+fail:
+	free(view);
+	free(buf);
+	return false;
+}
+
+#if 0
+void Title_GetFreeSpace(u32* free, s32* user_free)
+{
+	// Based off Dolphin Emulator's code. Cool stuff
+	static const char* const userDirs[10] = {
+		"/meta", "/ticket",
+		"/title/00010000", "/title/00010001",
+		"/title/00010003", "/title/00010004", "/title/00010005",
+		"/title/00010006", "/title/00010007", "/shared2/title" /* Wtf */
+	};
+
+	u32 stats[8];
+	ISFS_GetStats(stats);
+	u32 cluster_size  = stats[0], // Can just hardcode 16384 here but eh
+		free_clusters = stats[1],
+		used_clusters = stats[2];
+
+	*free = free_clusters * cluster_size;
+
+	static const u32 user_blocks_max = 2176, // 1 block = 128KiB (131072 bytes)
+	               user_clusters_max = user_blocks_max * 8; // 1 cluster = 16KiB (16384)
+
+	u32 user_clusters_used = 0;
+	for (int i = 0; i < 10; i++) {
+
+		//                               Clusters   Inodes
+		ret = ISFS_GetUsage(userDirs[i], &stats[0], &stats[1]);
+		if (ret == 0)
+			user_clusters_used += stats[0];
+	}
+
+	s32 user_clusters_free = user_clusters_max - user_clusters_used;
+                *user_free = user_clusters_free * cluster_size;
+}
+#endif
 __attribute__((aligned(0x10)))
 aeskey WiiCommonKey, vWiiCommonKey;
 

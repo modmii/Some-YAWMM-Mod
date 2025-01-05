@@ -2,9 +2,9 @@
 #include <stdlib.h>
 #include <ogcsys.h>
 #include <ogc/es.h>
+#include <ogc/aes.h>
 
 #include "sys.h"
-#include "aes.h"
 #include "nand.h"
 #include "mini_seeprom.h"
 #include "malloc.h"

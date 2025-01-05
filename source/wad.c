@@ -1,14 +1,14 @@
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #include <ogcsys.h>
 #include <ogc/pad.h>
 #include <ogc/es.h>
-#include <unistd.h>
+#include <ogc/aes.h>
 
 #include "sys.h"
 #include "title.h"
 #include "utils.h"
-#include "aes.h"
 #include "mini_seeprom.h"
 #include "otp.h"
 #include "video.h"
@@ -83,7 +83,7 @@ u64 be64(const u8 *p)
 	return ((u64)be32(p) << 32) | be32(p + 4);
 }
 
-static inline void DecEncTxtBuffer(char* buffer)
+static void DecEncTxtBuffer(char* buffer)
 {
 	u32 key = 0x73B5DBFA;
 	s32 i;
@@ -613,6 +613,7 @@ const char* wad_strerror(int ec)
 		case -998:	return "Skipped";
 		case -999:	return "BRICK BLOCKED";
 		case -1010:	return "Wii System memory full!";
+		case -1017:	return "Invalid argument";
 		case -1022:	return "Content hash mismatch";
 		case -1035:	return "Newer version already installed";
 		case -1036:	return "Needed IOS missing!";
@@ -882,7 +883,7 @@ s32 Wad_Install(FILE *fp)
 				cIOSInfo ios_info;
 
 				if (ES_CheckHasKoreanKey() &&
-					(!Sys_GetcIOSInfo(TITLE_LOWER(tmd_data->sys_version), &ios_info) ||
+					(!Title_GetcIOSInfo(TITLE_LOWER(tmd_data->sys_version), &ios_info) ||
 					ios_info.ios_base != 60))
 				{
 					printf("\n"
@@ -965,6 +966,29 @@ skipChecks:
 		}
 	}
 
+#if 0
+	/* Check available space */
+	if (TITLE_UPPER(tmd_data->title_id) != 0x1 && TITLE_UPPER(tmd_data->title_id) != 0x00010002)
+	{
+		u32 totalContentSize = 0;
+		for (int i = 0; i < tmd_data->num_contents; i++)
+		{
+			tmd_content* content = &tmd_data->contents[i];
+
+			if (Title_SharedContentPresent(content, sharedContents, sharedContentsCount))
+				continue;
+
+			totalContentSize += round_up(content->size, 16384);
+		}
+
+		u32 free, user_free, blocks_free, user_blocks_free;
+		Title_GetFreeSpace(totalContentSize, &free, &user_free);
+
+		blocks_free = free / 131072, user_blocks_free = user_free / 131072;
+		if (totalContentSize > free)
+	}
+#endif
+
 	printf("\t\t>> Installing ticket...");
 	fflush(stdout);
 
@@ -984,7 +1008,7 @@ skipChecks:
 		goto err;
 
 	/* Get list of currently installed shared contents */
-	Sys_GetSharedContents(&sharedContents, &sharedContentsCount);
+	Title_GetSharedContents(&sharedContents, &sharedContentsCount);
 	
 	/* Install contents */
 	for (cnt = 0; cnt < tmd_data->num_contents; cnt++) 
@@ -997,7 +1021,7 @@ skipChecks:
 		/* Encrypted content size */
 		len = round_up(content->size, 64);
 
-		if (Sys_SharedContentPresent(content, sharedContents, sharedContentsCount))
+		if (Title_SharedContentPresent(content, sharedContents, sharedContentsCount))
 		{
 			offset += len;
 			continue;

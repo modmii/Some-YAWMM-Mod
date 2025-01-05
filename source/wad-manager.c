@@ -1,15 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ogcsys.h>
 #include <malloc.h>
 #include <ctype.h>
+#include <ogcsys.h>
+#include <ogc/aes.h>
 #include <wiilight.h>
 #include <wiidrc/wiidrc.h>
 
 #include "sys.h"
 #include "title.h"
-#include "aes.h"
 #include "gui.h"
 #include "menu.h"
 #include "restart.h"

@@ -4,10 +4,11 @@
 #include <limits.h>
 #include <ogcsys.h>
 #include <ogc/es.h>
+#include <ogc/aes.h>
 
 #include "title.h"
+#include "nand.h"
 #include "sha1.h"
-#include "aes.h"
 #include "utils.h"
 #include "otp.h"
 #include "malloc.h"
@@ -184,6 +185,35 @@ err:
 	return ret;
 }
 
+s32 Title_GetTMDView(u64 tid, tmd_view** outbuf, u32* outlen)
+{
+	s32 ret;
+	u32 view_sz = 0;
+
+	*outbuf = NULL;
+	*outlen = 0;
+
+	ret = ES_GetTMDViewSize(tid, &view_sz);
+	if (ret < 0)
+		return ret;
+
+	tmd_view* view = memalign32(view_sz);
+	if (!view)
+		return -1;
+
+	ret = ES_GetTMDView(tid, (u8*) view, view_sz);
+	if (ret < 0)
+		goto fail;
+
+	*outbuf = view;
+	*outlen = view_sz;
+	return 0;
+
+fail:
+	free(view);
+	return ret;
+}
+
 s32 Title_GetVersion(u64 tid, u16 *outbuf)
 {
 	signed_blob *p_tmd = NULL;
@@ -262,7 +292,7 @@ s32 Title_GetSize(u64 tid, u32 *outbuf)
 	*outbuf = size;
 
 	/* Free memory */
-	free(p_tmd);
+	free(view);
 
 	return 0;
 }
@@ -361,45 +391,37 @@ bool Title_SharedContentPresent(tmd_content* content, SharedContent shared[], u3
 bool Title_GetcIOSInfo(int IOS, cIOSInfo* out)
 {
 	u64 titleID = 0x0000000100000000ULL | IOS;
-	ATTRIBUTE_ALIGN(0x20) char path[ISFS_MAXPATH];
+	tmd_view* view = NULL;
+	u32 view_size = 0;
+	char path[ISFS_MAXPATH];
 	u32 size;
 	cIOSInfo* buf = NULL;
 
-	u32 view_size = 0;
-	if (ES_GetTMDViewSize(titleID, &view_size) < 0)
-		return false;
+	s32 ret = Title_GetTMDView(titleID, &view, &view_size);
+	if (ret < 0)
+		return ret;
 
-	tmd_view* view = memalign32(view_size);
-	if (!view)
-		return false;
-
-	if (ES_GetTMDView(titleID, (u8*)view, view_size) < 0)
-		goto fail;
-
-	tmd_view_content* content0 = NULL;
-
-	for (tmd_view_content* con = view->contents; con < view->contents + view->num_contents; con++)
+	u32 content0 = 0;
+	for (int i = 0; i < view->num_contents; i++)
 	{
-		if (con->index == 0)
-			content0 = con;
+		if (view->contents[i].index == 0) {
+			content0 = view->contents[i].cid;
+			break;
+		}
 	}
+	free(view);
 
-	if (!content0)
-		goto fail;
-
-	sprintf(path, "/title/00000001/%08x/content/%08x.app", IOS, content0->cid);
+	sprintf(path, "/title/00000001/%08x/content/%08x.app", IOS, content0);
 	buf = (cIOSInfo*)NANDLoadFile(path, &size);
 
 	if (!buf || size != 0x40 || buf->hdr_magic != CIOS_INFO_MAGIC || buf->hdr_version != CIOS_INFO_VERSION)
 		goto fail;
 
 	*out = *buf;
-	free(view);
 	free(buf);
 	return true;
 
 fail:
-	free(view);
 	free(buf);
 	return false;
 }

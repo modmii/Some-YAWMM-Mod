@@ -43,6 +43,7 @@ s32 Title_FakesignTik(signed_blob *);
 s32 Title_FakesignTMD(signed_blob *);
 s32 Title_GetList(u64 **, u32 *);
 s32 Title_GetTicketViews(u64, tikview **, u32 *);
+s32 Title_GetTMDView(u64, tmd_view **, u32 *);
 s32 Title_GetTMD(u64, signed_blob **, u32 *);
 s32 Title_GetVersion(u64, u16 *);
 s32 Title_GetSysVersion(u64, u64 *);
@@ -51,6 +52,7 @@ s32 Title_GetIOSVersions(u8 **, u32 *);
 s32 Title_GetSharedContents(SharedContent** out, u32* count);
 bool Title_SharedContentPresent(tmd_content* content, SharedContent shared[], u32 count);
 bool Title_GetcIOSInfo(int IOS, cIOSInfo*);
+
 void Title_SetupCommonKeys(void);
 
 #endif
